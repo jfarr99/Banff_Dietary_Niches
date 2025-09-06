@@ -23,7 +23,9 @@ library(indicspecies)
 read in data 
 ```{r}
 physeq_rarefy_rra <- readRDS("banff_diet_phyloseq_cleaned_Dec032024.rds")
-
+physeq_rarefy_rra_bis <- subset_samples(physeq_rarefy_rra, Species == "Elk")
+#view(physeq_rarefy_rra_bis@tax_table)
+#view(physeq_rarefy_rra_bis@sam_data)
 
 table(sample_data(physeq_rarefy_rra)$Species)
 ```
@@ -70,7 +72,7 @@ rm(families, genera, spp)
 
 # how many samples per species/season? 
 physeq_df_n <- physeq_df %>% 
-  group_by(Species, Season) %>% 
+  group_by(Species, Season, Biszone) %>% 
   summarise(n = n_distinct(Sample))
 
 physeq_df_n
@@ -93,10 +95,23 @@ tax_foo <- physeq_df %>%
 # basic % summaries
 perc_summaries <- physeq_df %>% 
   mutate(Season = if_else(Season == "Fall", "Winter", Season)) %>% 
+  filter(Species %in% c( "BighornSheep")) %>% 
+  group_by(Species) %>%
+  mutate(Seasonal_samples = n_distinct(Sample)) %>%
+  group_by(Species, best_id) %>%
+  summarize(Proportion = sum(Abundance)/unique(Seasonal_samples)*100)# %>% # sum instead of mean? 
+  filter(Proportion > .1 & Species == "Bison")
+  
+  
+  
+  
+  perc_summaries <- physeq_df %>% 
+  mutate(Season = if_else(Season == "Fall", "Winter", Season)) %>% 
+  filter(Species %in% c( "BighornSheep")) %>% 
   group_by(Species, Season) %>%
   mutate(Seasonal_samples = n_distinct(Sample)) %>%
-  group_by(Species, Season, form) %>%
-  summarize(Proportion = sum(Abundance)/unique(Seasonal_samples)*100) # sum instead of mean? 
+  group_by(Species, Season, best_id) %>%
+  summarize(mean = mean(Abundance))
 ```
 
 
@@ -230,7 +245,7 @@ ggsave("Outputs/all_species_diets_noSeason_feb1662025.jpeg", width = 7.5, height
 ```
 
 
-indicator species analysis 
+indicator species analysis....
 ```{r}
 ######## FOR ALL SPECIES - ignoring season  ############
 # get our OTU matrix and our sample metadata 
@@ -407,5 +422,238 @@ write.csv(allszn_df, "Outputs/indicspp_results_all_seasons_separate.csv")
 
 
 
+
+
+Indicator species analysis - subset each season separately and re-run analysis 
+```{r}
+############################################################################################
+######## FOR SEASONAL DIETS ############
+
+physeq_rarefy_rra_core <- subset_samples(physeq_rarefy_rra, Species == "Bison" | Species == "BighornSheep" | Species == "Elk")
+
+
+#### WINTER FIRST 
+w_dat <-  subset_samples(physeq_rarefy_rra_core, Season == "Winter")
+otu_matrix <- as.data.frame(otu_table(w_dat))
+sample_metadata <- sample_data(w_dat)
+groups <-sample_metadata$Species # our grouping variable = species 
+
+# Add taxonomy to the OTU table
+otu_with_tax <- cbind(otu_matrix, tax_table(w_dat))
+### GROUP BY mOTU then we can assign stuff post-hoc! 
+otu_by_motu <- otu_with_tax %>%
+  group_by(identity) %>%
+  summarize(across(where(is.numeric), sum, na.rm = TRUE))
+otu_by_motu <- t(otu_by_motu) # transpose
+colnames(otu_by_motu) <- otu_by_motu[1,] # make labels first row) 
+otu_by_motu <- otu_by_motu[-1,] # remove row with labels (character)
+otu_by_motu <- apply(otu_by_motu, 2, as.numeric) # convert to numeric! 
+#otu_by_motu[otu_by_motu < 0.01] <- 0 # ignore taxa with miniscule representation (<1% of diet) 
+mOTU_w <- multipatt(otu_by_motu, groups, func = "r.g", control = how(nperm=999))[["sign"]]
+mOTU_w$identity = rownames(mOTU_w)
+mOTU_w <- left_join(mOTU_w, otu_with_tax[,66:87]) 
+
+mOTU_w <- mOTU_w %>% dplyr::select(s.BighornSheep, s.Bison, s.Elk, index, stat, p.value, identity, form, best_id)
+
+w_indic <- mOTU_w %>% 
+  filter(p.value < 0.05) %>% 
+  pivot_longer(., cols = c(s.BighornSheep, s.Bison, s.Elk)) %>% 
+    mutate(Season = "Winter", 
+         Species = ifelse(name == "s.BighornSheep", "BighornSheep", ifelse(name == "s.Bison", "Bison", "Elk"))) %>% 
+  dplyr::select(Season, Species, identity, best_id, value)
+
+
+##########################################
+#### SPRING 
+w_dat <-  subset_samples(physeq_rarefy_rra_core, Season == "Spring")
+otu_matrix <- as.data.frame(otu_table(w_dat))
+sample_metadata <- sample_data(w_dat)
+groups <-sample_metadata$Species # our grouping variable = species 
+
+# Add taxonomy to the OTU table
+otu_with_tax <- cbind(otu_matrix, tax_table(w_dat))
+### GROUP BY mOTU then we can assign stuff post-hoc! 
+otu_by_motu <- otu_with_tax %>%
+  group_by(identity) %>%
+  summarize(across(where(is.numeric), sum, na.rm = TRUE))
+otu_by_motu <- t(otu_by_motu) # transpose
+colnames(otu_by_motu) <- otu_by_motu[1,] # make labels first row) 
+otu_by_motu <- otu_by_motu[-1,] # remove row with labels (character)
+otu_by_motu <- apply(otu_by_motu, 2, as.numeric) # convert to numeric! 
+#otu_by_motu[otu_by_motu < 0.01] <- 0 # ignore taxa with miniscule representation (<1% of diet) 
+mOTU_w <- multipatt(otu_by_motu, groups, func = "r.g", control = how(nperm=999))[["sign"]]
+mOTU_w$identity = rownames(mOTU_w)
+mOTU_w <- left_join(mOTU_w, otu_with_tax[,93:115]) 
+
+mOTU_w <- mOTU_w %>% dplyr::select(s.BighornSheep, s.Bison, s.Elk, index, stat, p.value, identity, form, best_id)
+
+spring_indic <- mOTU_w %>% 
+  filter(p.value < 0.05) %>% 
+  pivot_longer(., cols = c(s.BighornSheep, s.Bison, s.Elk)) %>% 
+    mutate(Season = "Spring", 
+         Species = ifelse(name == "s.BighornSheep", "BighornSheep", ifelse(name == "s.Bison", "Bison", "Elk"))) %>% 
+  dplyr::select(Season, Species, identity, best_id, value)
+
+
+
+### SUMMER 
+w_dat <-  subset_samples(physeq_rarefy_rra_core, Season == "Summer")
+otu_matrix <- as.data.frame(otu_table(w_dat))
+sample_metadata <- sample_data(w_dat)
+groups <-sample_metadata$Species # our grouping variable = species 
+
+# Add taxonomy to the OTU table
+otu_with_tax <- cbind(otu_matrix, tax_table(w_dat))
+### GROUP BY mOTU then we can assign stuff post-hoc! 
+otu_by_motu <- otu_with_tax %>%
+  group_by(identity) %>%
+  summarize(across(where(is.numeric), sum, na.rm = TRUE))
+otu_by_motu <- t(otu_by_motu) # transpose
+colnames(otu_by_motu) <- otu_by_motu[1,] # make labels first row) 
+otu_by_motu <- otu_by_motu[-1,] # remove row with labels (character)
+otu_by_motu <- apply(otu_by_motu, 2, as.numeric) # convert to numeric! 
+#otu_by_motu[otu_by_motu < 0.01] <- 0 # ignore taxa with miniscule representation (<1% of diet) 
+mOTU_w <- multipatt(otu_by_motu, groups, func = "r.g", control = how(nperm=999))[["sign"]]
+mOTU_w$identity = rownames(mOTU_w)
+mOTU_w <- left_join(mOTU_w, otu_with_tax[,81:104]) 
+
+mOTU_w <- mOTU_w %>% dplyr::select(s.BighornSheep, s.Bison, s.Elk, index, stat, p.value, identity, form, best_id)
+
+summer_indic <- mOTU_w %>% 
+  filter(p.value < 0.05) %>% 
+  pivot_longer(., cols = c(s.BighornSheep, s.Bison, s.Elk)) %>% 
+  mutate(Season = "Summer", 
+         Species = ifelse(name == "s.BighornSheep", "BighornSheep", ifelse(name == "s.Bison", "Bison", "Elk"))) %>% 
+  dplyr::select(Season, Species, identity, best_id, value)
+
+### bind all of our indicator species analyses together 
+all_indic <- rbind(summer_indic, spring_indic, w_indic)
+
+## getting our RRA values
+szn_rra <- psmelt(physeq_rarefy_rra) %>% 
+  filter(Season != "Fall" & Species %in% c("Elk", "Bison", "BighornSheep")) %>% 
+  group_by(Species, Season) %>%
+  mutate(Seasonal_samples = n_distinct(Sample)) %>%
+  group_by(Species, Season, identity, best_id) %>%
+    summarize(Proportion = mean(Abundance), 
+              sd = sd(Abundance)) # sum instead of mean? 
+
+  #summarize(Proportion = sum(Abundance)/unique(Seasonal_samples)) # sum instead of mean? 
+
+### add RRA to our indicator species table! 
+combo <- left_join(szn_rra, all_indic) %>% 
+  mutate(value = ifelse(is.na(value), 0, value))
+
+combo2 <- combo %>%  group_by(identity, best_id) %>%
+  filter(any(Proportion > 0.02)) %>%  # Keep taxa with ≥2% in ANY species
+  ungroup() %>% 
+  mutate(alpha1 = ifelse(value == 0, 0.1, 1))
+
+combo2$Season = factor(combo2$Season, levels = c("Winter", "Spring", "Summer"))
+combo2$Species = factor(combo2$Species, levels = c("Bison", "BighornSheep", "Elk"), 
+                        labels = c("Bison", "Bighorn sheep", "Elk"))
+
+
+
+
+
+
+indicspecies_plot <- ggplot(combo2, aes(x = reorder(best_id, Proportion), 
+                                        y = Proportion, fill = Species, alpha = as.factor(alpha1))) +
+    geom_col(position = position_dodge(width = 0.8),  color = "grey20", width = 1, linewidth = 0.2) + 
+  # going to keep errorbars out for now, may add later. 
+  #   # geom_errorbar(position = position_dodge(width = 0.8), 
+          #         aes(ymax = Proportion + sd, ymin = Proportion), width = 0.2, color = "grey20", width = 1, linewidth = 0.2) + 
+
+  theme_bw() + 
+  #scale_y_continuous(expand = c(0, 0), limits = c(0, 0.55), breaks = seq(0.1, 0.5, 0.1)) + 
+  coord_flip() +
+  scale_alpha_manual(values = c(0.3, 1), guide = "none") + 
+    facet_grid(.~ Season, scales = "free", space='free') +
+  scale_fill_manual(values = c( "firebrick","orange2", "orchid"), guide = guide_legend(reverse = TRUE)) + #, "gold", "lightyellow2"))
+  ylab("Taxa relative read abundance in species seasonal diet") + xlab("Plant taxa associated with seasonal diets of large herbivore") + 
+  theme(strip.text = element_text(size = 10),
+                  panel.grid.minor = element_line(linetype = "dashed", color = "gray70", linewidth = 0.2), 
+          panel.grid.major = element_line(linetype = "dashed", color = "gray70", linewidth = 0.2),
+        legend.position =c(0.86, 0.13), legend.title = element_blank()) 
+
+indicspecies_plot
+nrow(table(combo2$best_id))
+
+ggsave(indicspecies_plot, filename= "outputs/indicator_species_RRA_plot_July082025.jpeg", height = 5, width = 8)
+
+
+
+###### plot with only species that are >5% of at least one species' seasonal diet
+combo2 <- left_join(szn_rra, all_indic) %>% 
+  mutate(value = ifelse(is.na(value), 0, value)) %>%  
+  group_by(best_id) %>%
+  filter(any(Proportion > 0.05)) %>%  # Keep taxa with ≥2% in ANY species
+  ungroup() %>% 
+  mutate(alpha1 = ifelse(value == 0, 0.3, 1))
+
+combo2$Season = factor(combo2$Season, levels = c("Winter", "Spring", "Summer"))
+combo2$Species = factor(combo2$Species, levels = c("Bison", "BighornSheep", "Elk"), 
+                        labels = c("Bison", "Bighorn sheep", "Elk"))
+
+
+indicspecies_plot <- ggplot(combo2, aes(x = reorder(best_id, Proportion), 
+                                        y = Proportion, fill = Species, alpha = as.factor(alpha1))) +
+  geom_col(position = position_dodge(width = 0.8),  color = "grey20", width = 1, linewidth = 0.2) + 
+   geom_errorbar(position = position_dodge(width = 0.8), 
+                   aes(ymax = Proportion + sd, ymin = Proportion), width = 0.2, color = "grey20", linewidth = 0.2) +
+  theme_bw() +
+  scale_y_continuous(expand =  expansion(mult = c(0, 0.1)), limits = c(0, 0.9), breaks = seq(0, 0.9, 0.2)) + 
+  coord_flip() +
+  scale_alpha_manual(values = c(0.5, 1), guide = "none") + 
+    facet_grid(.~ Season, scales = "free", space='free') +
+  scale_fill_manual(values = c( "firebrick","orange2", "orchid"), guide = guide_legend(reverse = TRUE)) + #, "gold", "lightyellow2"))
+  ylab("Taxa relative read abundance mean and standard deviation") + xlab("Common plant taxa (>5% of a species' seasonal diet)") + 
+  theme(strip.text = element_text(size = 10),
+                  panel.grid.minor = element_blank(),#element_line(linetype = "dashed", color = "gray70", linewidth = 0.2), 
+          panel.grid.major = element_line(linetype = "dashed", color = "gray70", linewidth = 0.2),
+        legend.position = "right", #c(0.87, 0.15), 
+          legend.title = element_blank(), panel.spacing = unit(1, "lines"), 
+         axis.text.y= element_text(face = "italic")) 
+
+indicspecies_plot
+ggsave(indicspecies_plot, filename= "outputs/indicator_common_species_RRA_plot_Aug242025.jpeg", height = 4, width = 10)
+
+### FOR SUPPLEMENTARY INFORMATION  - all species > 1% of seasonal diet 
+combo2 <- left_join(szn_rra, all_indic) %>% 
+  mutate(value = ifelse(is.na(value), 0, value)) %>%  
+  group_by(best_id) %>%
+  filter(any(Proportion > 0.03)) %>%  # Keep taxa with ≥2% in ANY species
+  ungroup() %>% 
+  mutate(alpha1 = ifelse(value == 0, 0.3, 1))
+
+combo2$Season = factor(combo2$Season, levels = c("Winter", "Spring", "Summer"))
+combo2$Species = factor(combo2$Species, levels = c("Bison", "BighornSheep", "Elk"), 
+                        labels = c("Bison", "Bighorn sheep", "Elk"))
+
+
+indicspecies_plot <- ggplot(combo2, aes(x = reorder(best_id, Proportion), 
+                                        y = Proportion, fill = Species, alpha = as.factor(alpha1))) +
+  geom_col(position = position_dodge(width = 0.8),  color = "grey20", width = 1, linewidth = 0.2) + 
+   geom_errorbar(position = position_dodge(width = 0.8), 
+                   aes(ymax = Proportion + sd, ymin = Proportion), width = 0.2, color = "grey20", linewidth = 0.2) +
+  theme_bw() +
+  scale_y_continuous(expand =  expansion(mult = c(0, 0.1))) + 
+  coord_flip() +
+  scale_alpha_manual(values = c(0.5, 1), guide = "none") + 
+    facet_grid(.~ Season, scales = "free", space='free') +
+  scale_fill_manual(values = c( "firebrick","orange2", "orchid"), guide = guide_legend(reverse = TRUE)) + #, "gold", "lightyellow2"))
+  ylab("Taxa relative read abundance mean and standard deviation") + xlab("All plant taxa that are >1% of a species' seasonal diet") + 
+  theme(strip.text = element_text(size = 10),
+                  panel.grid.minor = element_blank(),#element_line(linetype = "dashed", color = "gray70", linewidth = 0.2), 
+          panel.grid.major = element_line(linetype = "dashed", color = "gray70", linewidth = 0.2),
+        legend.position = "right", #c(0.87, 0.15), 
+          legend.title = element_blank(), panel.spacing = unit(1, "lines"), 
+         axis.text.y= element_text(face = "italic")) 
+
+indicspecies_plot
+ggsave(indicspecies_plot, filename= "outputs/indicator_all1%_species_RRA_plot_Aug242025.jpeg", height = 10, width = 12)
+
+```
 
 

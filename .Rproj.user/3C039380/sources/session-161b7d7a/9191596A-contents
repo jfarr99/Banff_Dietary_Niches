@@ -1,0 +1,71 @@
+---
+title: "Species Accumulation Curves"
+author: "Jonathan Farr"
+date: "2024-05-30"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Reading in libs
+```{r}
+library(dplyr)
+library(ggplot2)
+library(phyloseq)
+library(vegan)
+library(NatParksPalettes)
+library(forcats)
+library(tidyverse)
+library(here)
+```
+
+
+```{r}
+physeq_rarefy_rra <- readRDS(here("outputs/banff_diet_phyloseq_rarefy_RRA.rds"))
+
+```
+
+
+Generating species accumuation curves for bison/elk/bighorns specific to each season! 
+```{r, fig.width=10,fig.height=5}
+library(BiodiversityR)
+
+physeq_rarefy_rra_corespp <- subset_samples(physeq_rarefy_rra, Species == "Bison" | Species == "Elk" | Species == "BighornSheep")
+
+matrix <- otu_table(physeq_rarefy_rra_corespp)
+#matrix[matrix < 0.05] <- 0
+matrix_df <- as.data.frame(t(matrix))
+class(matrix_df) <- "data.frame"
+dim(matrix_df)
+
+# specify the environmental variable of interest :D 
+env <- sample_data(physeq_rarefy_rra_corespp)
+env$spp_szn <- paste(env$Species, env$Season, sep = "_")
+
+# this is the core function! Species accumulation curves based on groups! 
+Accum.1 <- BiodiversityR::accumcomp(matrix_df, y=env, factor='spp_szn', 
+    method='random', conditioned=FALSE, plotit=FALSE)
+
+accum.long1 <- accumcomp.long(Accum.1, ci=NA, label.freq=5) 
+head(accum.long1)
+
+# plot it! 
+plotgg1 <- ggplot(data=accum.long1, aes(x = Sites, y = Richness, ymax = UPR, ymin = LWR)) + 
+    scale_x_continuous(expand=c(0, 1), sec.axis = dup_axis(labels=NULL, name=NULL)) +
+    scale_y_continuous(sec.axis = dup_axis(labels=NULL, name=NULL)) +
+    geom_line(aes(colour=Grouping), size=1) +
+    geom_point(data=subset(accum.long1, labelit==TRUE), 
+               aes(colour=Grouping), size=2) +
+    geom_ribbon(aes(colour=Grouping), alpha=0.2, show.legend=FALSE) + 
+  facet_wrap(.~Grouping, nrow = 3) + 
+    labs(x = "Scat Samples", y = "Cumulative Taxa Richness", colour = "Species/Season") + 
+  theme_bw()
+
+plotgg1
+
+ggsave("outputs/spp_accum_curves.jpeg", width = 5, height = 4)
+```
+
+

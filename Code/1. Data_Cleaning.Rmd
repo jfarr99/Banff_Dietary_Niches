@@ -59,7 +59,7 @@ samples_df <- data.frame(sample_data(banff_diet)) %>%  # 261 samples that were s
 
 # read in other metadata on samples --> 338 samples total, including horses, blanks, etc... 
 metadata <- read_csv("data/Banff Metadata_Nov102024.csv") %>% 
-  dplyr::select(SampleID2 = `SampleID (lab)`, ID_Number, Date, Time, Season, General_Loc, Lat, Long, Species)
+  dplyr::select(SampleID2 = `SampleID (lab)`, ID_Number, Date, Time, Season, General_Loc, Biszone, Lat, Long, Species)
 
 #locations$Month = lubridate::month(locations$Date)
 

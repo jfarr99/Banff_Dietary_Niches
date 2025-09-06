@@ -55,6 +55,20 @@ hill_div_dom <- tibble::rownames_to_column(as.data.frame(hill_div_dominant), var
 
 hill <- rbind(hill_rich, hill_div)
 
+
+hill2 <- left_join(hill, sample_metadata,  by = "SampleID") %>% 
+  filter(Season != "Fall")
+
+
+ggplot(hill2[hill2$metric == "q1",], aes(x = value, fill = Species)) + geom_histogram() + facet_wrap(Species~Season)
+
+hist(hill2[hill2$Species == "Bison" & hill2$metric == "q1" & Sea,]$value)
+hist(hill2[hill2$Species == "Elk" & hill2$metric == "q1",]$value)
+hist(hill2[hill2$Species == "BighornSheep" & hill2$metric == "q1",]$value)
+
+
+
+
 div_metrics <- left_join(hill, sample_metadata,  by = "SampleID") %>% 
   filter(Season != "Fall") %>% 
   group_by(Species, metric) %>% 
@@ -185,3 +199,11 @@ ggplot(beta, aes(x = Season, fill = Species, y = values)) +
   ) + 
   scale_y_continuous(expand = c(0,0))
 ```
+
+
+
+Looking at species accumulation (rarefaction curves) to get population-level diet richness 
+```{r}
+
+```
+
