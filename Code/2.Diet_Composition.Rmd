@@ -23,11 +23,14 @@ library(indicspecies)
 read in data 
 ```{r}
 physeq_rarefy_rra <- readRDS("banff_diet_phyloseq_cleaned_Dec032024.rds")
-physeq_rarefy_rra_bis <- subset_samples(physeq_rarefy_rra, Species == "Elk")
-#view(physeq_rarefy_rra_bis@tax_table)
-#view(physeq_rarefy_rra_bis@sam_data)
 
-table(sample_data(physeq_rarefy_rra)$Species)
+
+sample_data(physeq_rarefy_rra)$Season = factor(sample_data(physeq_rarefy_rra)$Season, 
+                                         levels = c("Spring", "Summer", "Winter", "Fall"), 
+                                         labels = c("Spring", "Summer", "Winter", "Winter"))
+
+
+table(sample_data(physeq_rarefy_rra)$Species,sample_data(physeq_rarefy_rra)$Season )
 ```
 
 
@@ -77,6 +80,13 @@ physeq_df_n <- physeq_df %>%
 
 physeq_df_n
 
+
+form <- physeq_df %>%    
+  group_by(Species) %>%
+  mutate(Seasonal_samples = n_distinct(Sample)) %>%  # number of unique samples in the season 
+  group_by(Species, form) %>% 
+  summarise(RRA = sum(Abundance)/unique(Seasonal_samples)*100, 
+            Seasonal_samples = unique(Seasonal_samples)) 
 rm(physeq_df_n, spp, tax)
 ```
 
@@ -91,31 +101,65 @@ tax_foo <- physeq_df %>%
   group_by(identity, best_id) %>% # group by sample 
   summarise(FOO = sum(Present)/261) 
 
-
-# basic % summaries
-perc_summaries <- physeq_df %>% 
-  mutate(Season = if_else(Season == "Fall", "Winter", Season)) %>% 
-  filter(Species %in% c( "BighornSheep")) %>% 
-  group_by(Species) %>%
-  mutate(Seasonal_samples = n_distinct(Sample)) %>%
-  group_by(Species, best_id) %>%
-  summarize(Proportion = sum(Abundance)/unique(Seasonal_samples)*100)# %>% # sum instead of mean? 
-  filter(Proportion > .1 & Species == "Bison")
-  
-  
-  
-  
-  perc_summaries <- physeq_df %>% 
-  mutate(Season = if_else(Season == "Fall", "Winter", Season)) %>% 
-  filter(Species %in% c( "BighornSheep")) %>% 
-  group_by(Species, Season) %>%
-  mutate(Seasonal_samples = n_distinct(Sample)) %>%
-  group_by(Species, Season, best_id) %>%
-  summarize(mean = mean(Abundance))
 ```
 
 
-let's make one of those cool figures that birch had! 
+
+### Figure 1 - barplot of functional groups in species' diets 
+```{r}
+#Trying to make a SankeyDiagram - this is still janky 
+spp_data <- physeq_df %>%
+  group_by(Species) %>%
+  mutate(Seasonal_samples = n_distinct(Sample)) %>%  # number of unique samples in the season 
+  group_by(Species, form, identity) %>% 
+  summarise(RRA = sum(Abundance)/unique(Seasonal_samples)*100, 
+            Seasonal_samples = unique(Seasonal_samples)) 
+
+spp_data <- spp_data %>% 
+  filter(form != "moss") %>% # moss is a miniscule portion, so ditch it! 
+  mutate(form= if_else(is.na(form), "other", form)) %>% 
+  mutate(Species = if_else(Species == "BighornSheep", "Bighorn Sheep", Species))
+
+
+spp_data$form = factor(spp_data$form, levels = c("grass", "non-grass graminoid", "forb",
+                                                 "deciduous shrub/tree",
+                                                 "coniferous shrub/tree"), 
+                                    labels = c("Grass", "Non-grass graminoids", "Forbs", 
+                                               "Deciduous shrubs", 
+                                               "Coniferous shrubs"))
+spp_data$Species = factor(spp_data$Species, levels = c("Bison", "Bighorn Sheep", 
+                                                       "Elk", "Deer", "Goat", "Moose"), 
+                          labels = c("Bison", "Bighorn Sheep", 
+                                                       "Elk", "Deer spp.", "Mountain Goat", "Moose"))
+
+spp_data$allszn = "A. All Seasons"
+
+ggplot(spp_data,
+       aes(x = Species, fill = form, y = RRA)) +
+  geom_col(color = "grey20", alpha = 0.8) + 
+  scale_x_discrete(expand = c(0, .55)) +
+  scale_y_continuous(expand = c(0, 1)) + 
+  labs(y = "Relative Read Abundance (%)", x = NULL) +
+  facet_wrap(.~allszn, strip.position = "top") + 
+  theme_bw() +
+  theme(
+    axis.ticks = element_blank(),
+    legend.position = "none", 
+    legend.title = element_blank(),
+    panel.grid.major = element_blank(),  # Remove major gridlines
+    panel.grid.minor = element_blank()
+  ) + 
+  scale_fill_manual(values = c("gold", "lightyellow2", "darkorchid", "forestgreen", "brown"),
+                    na.value = "grey90") + 
+#  coord_flip() + 
+  guides(fill = guide_legend(reverse = TRUE))
+
+ggsave("Outputs/all_species_diets_noSeason_nov042025.jpeg", width = 5, height = 5)
+```
+
+
+
+### FIGURE 2 Sankey diagram 
 ```{r}
 #Trying to make a SankeyDiagram - this is still janky 
 physeq_sankey_data <- physeq_df %>%
@@ -138,21 +182,23 @@ physeq_sankey_PLOTdat$form = factor(physeq_sankey_PLOTdat$form, levels = c("gras
                                                                      #"SD", "SC")))
 
 
-physeq_sankey_PLOTdat$Season = factor(physeq_sankey_PLOTdat$Season, levels = c("Winter", "Spring", "Summer"))
+physeq_sankey_PLOTdat$Season = factor(physeq_sankey_PLOTdat$Season, levels = c("Winter", "Spring", "Summer"), 
+                                      labels = c("B. Winter", "C. Spring", "D. Summer"))
 
 physeq_sankey_PLOTdat$Species = factor(physeq_sankey_PLOTdat$Species, 
                                        levels = c("Elk", "BighornSheep", "Bison"), 
                                        labels = c("Elk", "Bighorn Sheep", "Bison"))
 
+physeq_sankey_PLOTdat$Species = factor(physeq_sankey_PLOTdat$Species, 
+                                       levels = c("Bison", "Bighorn Sheep", "Elk"))
 ggplot(physeq_sankey_PLOTdat,
-       aes(axis1 = form, axis2 = Species, y = Proportion)) +
+       aes(axis1 = Species, axis2 = form, y = Proportion)) +
   geom_alluvium(aes(fill = form), width = 1/10, color = "black", alpha = 0.8) +
   geom_stratum(width = 1/10, aes(fill = form), color = "black") +
 #  geom_text(stat = "stratum", infer.label = TRUE) +
   scale_x_discrete(expand = c(0,0)) + 
   scale_y_continuous(expand = c(0,0)) +
-  labs(y = "Proportional Read Abundance (%)") +
-  facet_wrap(.~Season, nrow = 3,  strip.position = "right") +
+  facet_wrap(.~Season, nrow = 3,  strip.position = "top") +
   theme_bw() +
   theme(
    axis.text = element_blank(),
@@ -164,88 +210,16 @@ ggplot(physeq_sankey_PLOTdat,
   ) + 
   scale_fill_manual(values = c("gold", "lightyellow2", "darkorchid", "forestgreen", "brown"),
                     na.value = "white")+ 
-  coord_flip() + 
   guides(fill = guide_legend(reverse = TRUE))
 
-ggsave("Outputs/seasonal_diets_dec072024.jpeg", width = 7, height = 6)
-
-
-## BARPLOT FOR BVN TALK
-ggplot(physeq_sankey_PLOTdat,
-       aes(x = Species, y = Proportion, fill = form)) +
-    geom_col(color = "black") + 
-  scale_x_discrete(expand = c(0,0)) + 
-  scale_y_continuous(expand = c(0,0)) +
-  labs(y = "Proportional Read Abundance (%)") +
-  facet_wrap(.~Season, nrow = 3,  strip.position = "right") +
-  theme_bw() +
-  theme(
- #  axis.text = element_blank(),
-  #  axis.ticks = element_blank(),
-    axis.title.y = element_blank(),
-    legend.position = "none", 
-    panel.grid.major = element_blank(),  # Remove major gridlines
-    panel.grid.minor = element_blank()
-  ) + 
-  scale_fill_manual(values = c("gold", "lightyellow2", "darkorchid", "forestgreen", "brown"),
-                    na.value = "white")+ 
-  coord_flip() + 
-  guides(fill = guide_legend(reverse = TRUE))
-```
-
-sankey that is independent of season
-```{r}
-#Trying to make a SankeyDiagram - this is still janky 
-spp_data <- physeq_df %>%
-  group_by(Species) %>%
-  mutate(Seasonal_samples = n_distinct(Sample)) %>%  # number of unique samples in the season 
-  group_by(Species, form, identity) %>% 
-  summarise(RRA = sum(Abundance)/unique(Seasonal_samples)*100, 
-            Seasonal_samples = unique(Seasonal_samples)) 
-
-spp_data <- spp_data %>% 
-  filter(form != "moss") %>% # moss is a miniscule portion, so ditch it! 
-  mutate(form= if_else(is.na(form), "other", form)) %>% 
-  mutate(Species = if_else(Species == "BighornSheep", "Bighorn Sheep", Species))
-
-
-spp_data$form = factor(spp_data$form, levels = c("grass", "non-grass graminoid", "forb",
-                                                 "deciduous shrub/tree",
-                                                 "coniferous shrub/tree"), 
-                                    labels = c("Grass", "Non-grass graminoids", "Forbs", 
-                                               "Deciduous shrubs", 
-                                               "Coniferous shrubs"))
-spp_data$Species = factor(spp_data$Species, levels = rev(c("Bison", "Bighorn Sheep", 
-                                                       "Elk", "Deer", "Goat", "Moose")), 
-                          labels = rev(c("Bison", "Bighorn Sheep", 
-                                                       "Elk", "Deer spp.", "Mountain Goat", "Moose")))
-
-spp_data$allszn = "All Seasons"
-
-ggplot(spp_data,
-       aes(x = Species, fill = form, y = RRA)) +
-  geom_col(color = "grey20", alpha = 0.8) + 
-  scale_x_discrete(expand = c(0, .55)) +
-  scale_y_continuous(expand = c(0, 1)) + 
-  labs(y = "Relative Read Abundance (%)", x = NULL) +
-  theme_bw() +
-  theme(
-    axis.ticks = element_blank(),
-    legend.position = "top", 
-    legend.title = element_blank(),
-    panel.grid.major = element_blank(),  # Remove major gridlines
-    panel.grid.minor = element_blank()
-  ) + 
-  scale_fill_manual(values = c("gold", "lightyellow2", "darkorchid", "forestgreen", "brown"),
-                    na.value = "grey90") + 
-  coord_flip() + 
-  guides(fill = guide_legend(reverse = TRUE))
-
-ggsave("Outputs/all_species_diets_noSeason_feb1662025.jpeg", width = 7.5, height = 5)
+ggsave("Outputs/seasonal_diets_Nov032025.jpeg", width = 2.5, height = 6)
 ```
 
 
-indicator species analysis....
+
+
+
+##  Indicator species analysis....
 ```{r}
 ######## FOR ALL SPECIES - ignoring season  ############
 # get our OTU matrix and our sample metadata 
@@ -270,7 +244,7 @@ otu_by_form <- apply(otu_by_form, 2, as.numeric) # convert to numeric!
 form_allszn <- multipatt(otu_by_form, groups, func = "r.g", control = how(nperm=9999))[["sign"]]
 write.csv(form_allszn, "Outputs/form_indicspp_allspp.csv")
 
-### GROUP BY mOTU then we can assign stuff post-hoc! 
+### organized by mOTU 
 otu_by_motu <- otu_with_tax %>%
   group_by(identity) %>%
   summarize(across(where(is.numeric), sum, na.rm = TRUE))
@@ -279,144 +253,23 @@ otu_by_motu <- t(otu_by_motu) # transpose
 colnames(otu_by_motu) <- otu_by_motu[1,] # make labels first row) 
 otu_by_motu <- otu_by_motu[-1,] # remove row with labels (character)
 otu_by_motu <- apply(otu_by_motu, 2, as.numeric) # convert to numeric! 
-otu_by_motu[otu_by_motu < 0.01] <- 0 # ignore families with miniscule representation (<0.1% of diet) or 
+# keep only rows with sum >= 0.001
+otu_by_motu <- otu_by_motu[,colSums(otu_by_motu) > 0.01 ]
+ncol(otu_by_motu) # retails 210 columns of total RRA < 0.001 
+#otu_by_motu[otu_by_motu < 0.001] <- 0 # ignore families with miniscule representation (<0.1% of diet) or 
 
 
 mOTU_allszn <- multipatt(otu_by_motu, groups, func = "r.g", control = how(nperm=999))[["sign"]]
 mOTU_allszn$identity = rownames(mOTU_allszn)
 mOTU_allszn <- left_join(mOTU_allszn, otu_with_tax[,262:284]) 
 
-write.csv(mOTU_allszn, "Outputs/mOTU_indicspp_allspp.csv")
+mOTU_allszn <- mOTU_allszn %>% dplyr::select(s.BighornSheep, s.Bison, s.Elk, s.Deer, s.Moose, s.Goat, index, stat, p.value, identity, family_name, genus_name, best_id, alternative_id)
+
+mOTU_allszn <- mOTU_allszn %>% 
+  filter(p.value < 0.05) 
 
 
-######## grouped by family 
-otu_by_fam <- otu_with_tax %>%
-  group_by(family_name) %>%
-  summarize(across(where(is.numeric), sum, na.rm = TRUE)) %>% # grouping by family and adding things together 
-  filter(!is.na(family_name)) # we remove all taxa not assigned to a form/family/species
-
-
-otu_by_fam <- t(otu_by_fam) # transpose
-colnames(otu_by_fam) <- otu_by_fam[1,] # make labels first row) 
-otu_by_fam <- otu_by_fam[-1,] # remove row with labels (character)
-otu_by_fam <- apply(otu_by_fam, 2, as.numeric) # convert to numeric! 
-# Set values below 0.001 to 0
-# else we run into a weird thing where some small species show up as indicators for deer.... 
-
-fam_allszn <- multipatt(otu_by_fam, groups, func = "r.g", control = how(nperm=9999))[["sign"]]
-write.csv(fam_allszn, "Outputs/fam_indicspp_allspp.csv")
-
-# grouped by genera! 
-otu_by_gen <- otu_with_tax %>%
-  group_by(genus_name) %>%
-  summarize(across(where(is.numeric), sum, na.rm = TRUE)) %>% # grouping by family and adding things together 
-  filter(!is.na(genus_name)) # we remove all taxa not assigned to a form/family/species
-
-
-otu_by_gen <- t(otu_by_gen) # transpose
-colnames(otu_by_gen) <- otu_by_gen[1,] # make labels first row) 
-otu_by_gen <- otu_by_gen[-1,] # remove row with labels (character)
-otu_by_gen <- apply(otu_by_gen, 2, as.numeric) # convert to numeric! 
-gen_allszn <-multipatt(otu_by_gen, groups, func = "r.g", control = how(nperm=9999))[["sign"]]
-write.csv(gen_allszn, "Outputs/genus_indicspp_allspp.csv")
-
-
-## need to bind all this together into a nice little table to make things easy to .csv share
-form_allszn$group = rownames(form_allszn)
-fam_allszn$group = rownames(fam_allszn)
-gen_allszn$group = rownames(gen_allszn)
-
-allszn_df <- rbind(form_allszn, fam_allszn, gen_allszn)
-write.csv(allszn_df, "Outputs/indicspp_results_all_seasons_combined.csv")
-
-############################################################################################
-######## FOR SEASONAL DIETS ############
-
-physeq_rarefy_rra_subset <- subset_samples(physeq_rarefy_rra, (Species == "Bison" | Species == "BighornSheep"
-                                           | Species == "Elk") & Season != "Fall" )
-
-otu_matrix <- as.data.frame(otu_table(physeq_rarefy_rra_subset))
-sample_metadata <- sample_data(physeq_rarefy_rra_subset)
-# Add taxonomy to the OTU table
-otu_with_tax <- cbind(otu_matrix, tax_table(physeq_rarefy_rra_subset))
-groups <-paste(sample_metadata$Species, sample_metadata$Season, sep = "_") # our grouping variable = species 
-groups <- factor(groups)
-
-####### grouped by functional form  
-otu_by_form <- otu_with_tax %>%
-  group_by(form) %>%
-  summarize(across(where(is.numeric), sum, na.rm = TRUE)) %>% 
-  filter(!is.na(form) & form != "moss")
-
-otu_by_form <- t(otu_by_form) # transpose
-colnames(otu_by_form) <- otu_by_form[1,] # make labels first row) 
-otu_by_form <- otu_by_form[-1,] # remove row with labels (character)
-otu_by_form <- apply(otu_by_form, 2, as.numeric) # convert to numeric! 
-
-szn_form <- multipatt(otu_by_form, groups, func = "r.g",  control = how(nperm=9999))[["sign"]]
-
-write.csv(szn_form, "Outputs/form_indicspp_seasonal_diets.csv")
-
-### GROUP BY mOTU then we can assign stuff post-hoc! 
-otu_by_motu <- otu_with_tax %>%
-  group_by(identity) %>%
-  summarize(across(where(is.numeric), sum, na.rm = TRUE))
-
-otu_by_motu <- t(otu_by_motu) # transpose
-colnames(otu_by_motu) <- otu_by_motu[1,] # make labels first row) 
-otu_by_motu <- otu_by_motu[-1,] # remove row with labels (character)
-otu_by_motu <- apply(otu_by_motu, 2, as.numeric) # convert to numeric! 
-otu_by_motu[otu_by_motu < 0.01] <- 0 # ignore families with miniscule representation (<0.1% of diet) or 
-
-
-mOTU_allszn <- multipatt(otu_by_motu, groups, func = "r.g", control = how(nperm=999))[["sign"]]
-mOTU_allszn$identity = rownames(mOTU_allszn)
-mOTU_allszn <- left_join(mOTU_allszn, otu_with_tax[,237:260]) 
-
-write.csv(mOTU_allszn, "Outputs/mOTU_indicspp_seasonal_diets.csv")
-
-
-######## grouped by family 
-otu_by_fam <- otu_with_tax %>%
-  group_by(family_name) %>%
-  summarize(across(where(is.numeric), sum, na.rm = TRUE)) %>% # grouping by family and adding things together 
-  filter(!is.na(family_name)) # we remove all taxa not assigned to a form/family/species
-
-
-otu_by_fam <- t(otu_by_fam) # transpose
-colnames(otu_by_fam) <- otu_by_fam[1,] # make labels first row) 
-otu_by_fam <- otu_by_fam[-1,] # remove row with labels (character)
-otu_by_fam <- apply(otu_by_fam, 2, as.numeric) # convert to numeric! 
-# Set values below 0.001 to 0
-#otu_by_fam[otu_by_fam < 0.001] <- 0 # ignore families with miniscule representation (<0.1% of diet) or 
-# else we run into a weird thing where some small species show up as indicators for deer.... 
-
-szn_fam <- multipatt(otu_by_fam, groups,  func = "r.g", control = how(nperm=9999))[["sign"]]
-write.csv(szn_fam, "Outputs/fam_indicspp_seasonal_diets.csv")
-
-# grouped by genera! 
-otu_by_gen <- otu_with_tax %>%
-  group_by(genus_name) %>%
-  summarize(across(where(is.numeric), sum, na.rm = TRUE)) %>% # grouping by family and adding things together 
-  filter(!is.na(genus_name)) # we remove all taxa not assigned to a form/family/species
-
-
-otu_by_gen <- t(otu_by_gen) # transpose
-colnames(otu_by_gen) <- otu_by_gen[1,] # make labels first row) 
-otu_by_gen <- otu_by_gen[-1,] # remove row with labels (character)
-otu_by_gen <- apply(otu_by_gen, 2, as.numeric) # convert to numeric! 
-
-szn_gen <- multipatt(otu_by_gen, groups, func = "r.g", control = how(nperm=9990))[["sign"]]
-write.csv(szn_gen, "Outputs/gen_indicspp_seasonal_diets.csv")
-
-
-### 
-szn_form$group = rownames(szn_form)
-szn_fam$group = rownames(szn_fam)
-szn_gen$group = rownames(szn_gen)
-
-szn_df <- rbind(szn_form, szn_fam, szn_gen)
-write.csv(allszn_df, "Outputs/indicspp_results_all_seasons_separate.csv")
+write.csv(mOTU_allszn, "Outputs/all_spp_mOTU_indicspp_allspp.csv")
 
 ```
 
@@ -430,6 +283,76 @@ Indicator species analysis - subset each season separately and re-run analysis
 ######## FOR SEASONAL DIETS ############
 
 physeq_rarefy_rra_core <- subset_samples(physeq_rarefy_rra, Species == "Bison" | Species == "BighornSheep" | Species == "Elk")
+
+####### grouped by functional form  
+
+# winter
+w_dat <-  subset_samples(physeq_rarefy_rra_core, Season == "Winter")
+otu_matrix <- as.data.frame(otu_table(w_dat))
+sample_metadata <- sample_data(w_dat)
+# Add taxonomy to the OTU table
+otu_with_tax <- cbind(otu_matrix, tax_table(w_dat))
+groups <-sample_metadata$Species # our grouping variable = species 
+groups <- factor(groups)
+otu_by_form <- otu_with_tax %>%
+  group_by(form) %>%
+  summarize(across(where(is.numeric), sum, na.rm = TRUE)) %>% 
+  filter(!is.na(form))
+
+otu_by_form <- t(otu_by_form) # transpose
+colnames(otu_by_form) <- otu_by_form[1,] # make labels first row) 
+otu_by_form <- otu_by_form[-1,] # remove row with labels (character)
+otu_by_form <- apply(otu_by_form, 2, as.numeric) # convert to numeric! 
+
+form_w <- multipatt(otu_by_form, groups, func = "r.g", control = how(nperm=9999))[["sign"]]
+write.csv(form_w, "Outputs/WINTER_form_indicspp_allspp.csv")
+
+# sprin g
+w_dat <-  subset_samples(physeq_rarefy_rra_core, Season == "Spring")
+otu_matrix <- as.data.frame(otu_table(w_dat))
+sample_metadata <- sample_data(w_dat)
+# Add taxonomy to the OTU table
+otu_with_tax <- cbind(otu_matrix, tax_table(w_dat))
+groups <-sample_metadata$Species # our grouping variable = species 
+groups <- factor(groups)
+otu_by_form <- otu_with_tax %>%
+  group_by(form) %>%
+  summarize(across(where(is.numeric), sum, na.rm = TRUE)) %>% 
+  filter(!is.na(form))
+
+otu_by_form <- t(otu_by_form) # transpose
+colnames(otu_by_form) <- otu_by_form[1,] # make labels first row) 
+otu_by_form <- otu_by_form[-1,] # remove row with labels (character)
+otu_by_form <- apply(otu_by_form, 2, as.numeric) # convert to numeric! 
+
+form_w <- multipatt(otu_by_form, groups, func = "r.g", control = how(nperm=9999))[["sign"]]
+write.csv(form_w, "Outputs/SPRING_form_indicspp_allspp.csv")
+
+# summer 
+w_dat <-  subset_samples(physeq_rarefy_rra_core, Season == "Summer")
+otu_matrix <- as.data.frame(otu_table(w_dat))
+sample_metadata <- sample_data(w_dat)
+# Add taxonomy to the OTU table
+otu_with_tax <- cbind(otu_matrix, tax_table(w_dat))
+groups <-sample_metadata$Species # our grouping variable = species 
+groups <- factor(groups)
+otu_by_form <- otu_with_tax %>%
+  group_by(form) %>%
+  summarize(across(where(is.numeric), sum, na.rm = TRUE)) %>% 
+  filter(!is.na(form))
+
+otu_by_form <- t(otu_by_form) # transpose
+colnames(otu_by_form) <- otu_by_form[1,] # make labels first row) 
+otu_by_form <- otu_by_form[-1,] # remove row with labels (character)
+otu_by_form <- apply(otu_by_form, 2, as.numeric) # convert to numeric! 
+
+form_w <- multipatt(otu_by_form, groups, func = "r.g", control = how(nperm=9999))[["sign"]]
+write.csv(form_w, "Outputs/SUMMER_form_indicspp_allspp.csv")
+
+
+
+###############################################################################
+########### mOTUs ###########
 
 
 #### WINTER FIRST 
@@ -448,19 +371,18 @@ otu_by_motu <- t(otu_by_motu) # transpose
 colnames(otu_by_motu) <- otu_by_motu[1,] # make labels first row) 
 otu_by_motu <- otu_by_motu[-1,] # remove row with labels (character)
 otu_by_motu <- apply(otu_by_motu, 2, as.numeric) # convert to numeric! 
-#otu_by_motu[otu_by_motu < 0.01] <- 0 # ignore taxa with miniscule representation (<1% of diet) 
+otu_by_motu <- otu_by_motu[,colSums(otu_by_motu) > 0.01 ] # remove rare taxa (< 1%)
 mOTU_w <- multipatt(otu_by_motu, groups, func = "r.g", control = how(nperm=999))[["sign"]]
 mOTU_w$identity = rownames(mOTU_w)
-mOTU_w <- left_join(mOTU_w, otu_with_tax[,66:87]) 
+mOTU_w <- left_join(mOTU_w, otu_with_tax[,66:89]) 
 
-mOTU_w <- mOTU_w %>% dplyr::select(s.BighornSheep, s.Bison, s.Elk, index, stat, p.value, identity, form, best_id)
+mOTU_w <- mOTU_w %>% dplyr::select(s.BighornSheep, s.Bison, s.Elk, index, stat, p.value, identity, family_name, genus_name, best_id, alternative_id)
 
 w_indic <- mOTU_w %>% 
-  filter(p.value < 0.05) %>% 
-  pivot_longer(., cols = c(s.BighornSheep, s.Bison, s.Elk)) %>% 
-    mutate(Season = "Winter", 
-         Species = ifelse(name == "s.BighornSheep", "BighornSheep", ifelse(name == "s.Bison", "Bison", "Elk"))) %>% 
-  dplyr::select(Season, Species, identity, best_id, value)
+  filter(p.value < 0.05) 
+write.csv(w_indic, "Outputs/WINTER_mOTU_indicspp_allspp.csv")
+
+
 
 
 ##########################################
@@ -480,19 +402,16 @@ otu_by_motu <- t(otu_by_motu) # transpose
 colnames(otu_by_motu) <- otu_by_motu[1,] # make labels first row) 
 otu_by_motu <- otu_by_motu[-1,] # remove row with labels (character)
 otu_by_motu <- apply(otu_by_motu, 2, as.numeric) # convert to numeric! 
-#otu_by_motu[otu_by_motu < 0.01] <- 0 # ignore taxa with miniscule representation (<1% of diet) 
+otu_by_motu <- otu_by_motu[,colSums(otu_by_motu) > 0.01 ]
 mOTU_w <- multipatt(otu_by_motu, groups, func = "r.g", control = how(nperm=999))[["sign"]]
 mOTU_w$identity = rownames(mOTU_w)
 mOTU_w <- left_join(mOTU_w, otu_with_tax[,93:115]) 
 
-mOTU_w <- mOTU_w %>% dplyr::select(s.BighornSheep, s.Bison, s.Elk, index, stat, p.value, identity, form, best_id)
+mOTU_w <- mOTU_w %>% dplyr::select(s.BighornSheep, s.Bison, s.Elk, index, stat, p.value, identity, family_name, genus_name, best_id, alternative_id)
 
-spring_indic <- mOTU_w %>% 
-  filter(p.value < 0.05) %>% 
-  pivot_longer(., cols = c(s.BighornSheep, s.Bison, s.Elk)) %>% 
-    mutate(Season = "Spring", 
-         Species = ifelse(name == "s.BighornSheep", "BighornSheep", ifelse(name == "s.Bison", "Bison", "Elk"))) %>% 
-  dplyr::select(Season, Species, identity, best_id, value)
+w_indic <- mOTU_w %>% 
+  filter(p.value < 0.05) 
+write.csv(w_indic, "Outputs/SPRING_mOTU_indicspp_allspp.csv")
 
 
 
@@ -512,22 +431,21 @@ otu_by_motu <- t(otu_by_motu) # transpose
 colnames(otu_by_motu) <- otu_by_motu[1,] # make labels first row) 
 otu_by_motu <- otu_by_motu[-1,] # remove row with labels (character)
 otu_by_motu <- apply(otu_by_motu, 2, as.numeric) # convert to numeric! 
-#otu_by_motu[otu_by_motu < 0.01] <- 0 # ignore taxa with miniscule representation (<1% of diet) 
+otu_by_motu <- otu_by_motu[,colSums(otu_by_motu) > 0.01 ]
 mOTU_w <- multipatt(otu_by_motu, groups, func = "r.g", control = how(nperm=999))[["sign"]]
 mOTU_w$identity = rownames(mOTU_w)
 mOTU_w <- left_join(mOTU_w, otu_with_tax[,81:104]) 
 
-mOTU_w <- mOTU_w %>% dplyr::select(s.BighornSheep, s.Bison, s.Elk, index, stat, p.value, identity, form, best_id)
+mOTU_w <- mOTU_w %>% dplyr::select(s.BighornSheep, s.Bison, s.Elk, index, stat, p.value, identity, family_name, genus_name, best_id, alternative_id)
 
-summer_indic <- mOTU_w %>% 
-  filter(p.value < 0.05) %>% 
-  pivot_longer(., cols = c(s.BighornSheep, s.Bison, s.Elk)) %>% 
-  mutate(Season = "Summer", 
-         Species = ifelse(name == "s.BighornSheep", "BighornSheep", ifelse(name == "s.Bison", "Bison", "Elk"))) %>% 
-  dplyr::select(Season, Species, identity, best_id, value)
+w_indic <- mOTU_w %>% 
+  filter(p.value < 0.05) 
+write.csv(w_indic, "Outputs/SUMMER_mOTU_indicspp_allspp.csv")
 
 ### bind all of our indicator species analyses together 
 all_indic <- rbind(summer_indic, spring_indic, w_indic)
+all_indic$Season = factor(all_indic$Season, levels = c("Winter", "Spring", "Summer"))
+
 
 ## getting our RRA values
 szn_rra <- psmelt(physeq_rarefy_rra) %>% 
@@ -544,10 +462,13 @@ szn_rra <- psmelt(physeq_rarefy_rra) %>%
 combo <- left_join(szn_rra, all_indic) %>% 
   mutate(value = ifelse(is.na(value), 0, value))
 
+
+##### FOR ALL SPECIES > 1% ######
+
 combo2 <- combo %>%  group_by(identity, best_id) %>%
-  filter(any(Proportion > 0.02)) %>%  # Keep taxa with ≥2% in ANY species
+  filter(any(Proportion > 0.01)) %>%  # Keep taxa with ≥2% in ANY species
   ungroup() %>% 
-  mutate(alpha1 = ifelse(value == 0, 0.1, 1))
+  mutate(alpha1 = ifelse(value == 0, 0.3, 1))
 
 combo2$Season = factor(combo2$Season, levels = c("Winter", "Spring", "Summer"))
 combo2$Species = factor(combo2$Species, levels = c("Bison", "BighornSheep", "Elk"), 
@@ -555,32 +476,26 @@ combo2$Species = factor(combo2$Species, levels = c("Bison", "BighornSheep", "Elk
 
 
 
-
-
-
 indicspecies_plot <- ggplot(combo2, aes(x = reorder(best_id, Proportion), 
                                         y = Proportion, fill = Species, alpha = as.factor(alpha1))) +
     geom_col(position = position_dodge(width = 0.8),  color = "grey20", width = 1, linewidth = 0.2) + 
   # going to keep errorbars out for now, may add later. 
-  #   # geom_errorbar(position = position_dodge(width = 0.8), 
-          #         aes(ymax = Proportion + sd, ymin = Proportion), width = 0.2, color = "grey20", width = 1, linewidth = 0.2) + 
-
+   geom_errorbar(position = position_dodge(width = 0.8), 
+                   aes(ymax = Proportion + sd, ymin = Proportion), width = 0.2, color = "grey20", linewidth = 0.2) +
   theme_bw() + 
-  #scale_y_continuous(expand = c(0, 0), limits = c(0, 0.55), breaks = seq(0.1, 0.5, 0.1)) + 
+  scale_y_continuous(expand =  expansion(mult = c(0, 0.1)), limits = c(0, 0.9), breaks = seq(0, 0.9, 0.2)) + 
   coord_flip() +
   scale_alpha_manual(values = c(0.3, 1), guide = "none") + 
     facet_grid(.~ Season, scales = "free", space='free') +
-  scale_fill_manual(values = c( "firebrick","orange2", "orchid"), guide = guide_legend(reverse = TRUE)) + #, "gold", "lightyellow2"))
-  ylab("Taxa relative read abundance in species seasonal diet") + xlab("Plant taxa associated with seasonal diets of large herbivore") + 
+  scale_fill_manual(values =c("#586028","tan1",  "#00A1B7"), guide = guide_legend(reverse = TRUE)) + #, "gold", "lightyellow2"))
+  ylab("Taxa relative read abundance in species seasonal diet") + xlab("Plant taxa associated with seasonal diets of large herbivores") + 
   theme(strip.text = element_text(size = 10),
-                  panel.grid.minor = element_line(linetype = "dashed", color = "gray70", linewidth = 0.2), 
-          panel.grid.major = element_line(linetype = "dashed", color = "gray70", linewidth = 0.2),
-        legend.position =c(0.86, 0.13), legend.title = element_blank()) 
-
+        legend.position = "right", #c(0.87, 0.15), 
+          legend.title = element_blank(), panel.spacing = unit(1, "lines"), 
+         axis.text.y= element_text(face = "italic")) 
 indicspecies_plot
-nrow(table(combo2$best_id))
 
-ggsave(indicspecies_plot, filename= "outputs/indicator_species_RRA_plot_July082025.jpeg", height = 5, width = 8)
+ggsave(indicspecies_plot, filename= "outputs/indicator_species_1%_cutoff_RRA_plot_July082025.jpeg", height = 8, width = 10)
 
 
 
@@ -607,52 +522,17 @@ indicspecies_plot <- ggplot(combo2, aes(x = reorder(best_id, Proportion),
   coord_flip() +
   scale_alpha_manual(values = c(0.5, 1), guide = "none") + 
     facet_grid(.~ Season, scales = "free", space='free') +
-  scale_fill_manual(values = c( "firebrick","orange2", "orchid"), guide = guide_legend(reverse = TRUE)) + #, "gold", "lightyellow2"))
+  scale_fill_manual(values =c("#586028","tan1",  "#00A1B7"), guide = guide_legend(reverse = TRUE)) + #, "gold", "lightyellow2"))
   ylab("Taxa relative read abundance mean and standard deviation") + xlab("Common plant taxa (>5% of a species' seasonal diet)") + 
   theme(strip.text = element_text(size = 10),
-                  panel.grid.minor = element_blank(),#element_line(linetype = "dashed", color = "gray70", linewidth = 0.2), 
-          panel.grid.major = element_line(linetype = "dashed", color = "gray70", linewidth = 0.2),
+       #           panel.grid.minor = element_blank(),#element_line(linetype = "dashed", color = "gray70", linewidth = 0.2), 
+      #    panel.grid.major = element_line(linetype = "dashed", color = "gray70", linewidth = 0.2),
         legend.position = "right", #c(0.87, 0.15), 
           legend.title = element_blank(), panel.spacing = unit(1, "lines"), 
          axis.text.y= element_text(face = "italic")) 
 
 indicspecies_plot
 ggsave(indicspecies_plot, filename= "outputs/indicator_common_species_RRA_plot_Aug242025.jpeg", height = 4, width = 10)
-
-### FOR SUPPLEMENTARY INFORMATION  - all species > 1% of seasonal diet 
-combo2 <- left_join(szn_rra, all_indic) %>% 
-  mutate(value = ifelse(is.na(value), 0, value)) %>%  
-  group_by(best_id) %>%
-  filter(any(Proportion > 0.03)) %>%  # Keep taxa with ≥2% in ANY species
-  ungroup() %>% 
-  mutate(alpha1 = ifelse(value == 0, 0.3, 1))
-
-combo2$Season = factor(combo2$Season, levels = c("Winter", "Spring", "Summer"))
-combo2$Species = factor(combo2$Species, levels = c("Bison", "BighornSheep", "Elk"), 
-                        labels = c("Bison", "Bighorn sheep", "Elk"))
-
-
-indicspecies_plot <- ggplot(combo2, aes(x = reorder(best_id, Proportion), 
-                                        y = Proportion, fill = Species, alpha = as.factor(alpha1))) +
-  geom_col(position = position_dodge(width = 0.8),  color = "grey20", width = 1, linewidth = 0.2) + 
-   geom_errorbar(position = position_dodge(width = 0.8), 
-                   aes(ymax = Proportion + sd, ymin = Proportion), width = 0.2, color = "grey20", linewidth = 0.2) +
-  theme_bw() +
-  scale_y_continuous(expand =  expansion(mult = c(0, 0.1))) + 
-  coord_flip() +
-  scale_alpha_manual(values = c(0.5, 1), guide = "none") + 
-    facet_grid(.~ Season, scales = "free", space='free') +
-  scale_fill_manual(values = c( "firebrick","orange2", "orchid"), guide = guide_legend(reverse = TRUE)) + #, "gold", "lightyellow2"))
-  ylab("Taxa relative read abundance mean and standard deviation") + xlab("All plant taxa that are >1% of a species' seasonal diet") + 
-  theme(strip.text = element_text(size = 10),
-                  panel.grid.minor = element_blank(),#element_line(linetype = "dashed", color = "gray70", linewidth = 0.2), 
-          panel.grid.major = element_line(linetype = "dashed", color = "gray70", linewidth = 0.2),
-        legend.position = "right", #c(0.87, 0.15), 
-          legend.title = element_blank(), panel.spacing = unit(1, "lines"), 
-         axis.text.y= element_text(face = "italic")) 
-
-indicspecies_plot
-ggsave(indicspecies_plot, filename= "outputs/indicator_all1%_species_RRA_plot_Aug242025.jpeg", height = 10, width = 12)
 
 ```
 

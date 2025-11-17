@@ -1,0 +1,838 @@
+---
+title: "niche overlap"
+output: html_document
+date: "2024-07-26"
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Reading in libs
+```{r}
+library(ggplot2)
+library(phyloseq)
+library(tidyverse)
+library(here)
+library(vegan)
+library(microViz)
+library(ggpubr)
+library(spaa)
+```
+
+Read in our data 
+```{r}
+physeq_rra <- readRDS("banff_diet_phyloseq_cleaned_Dec032024.rds") 
+
+
+physeq_rra_core <- subset_samples(physeq_rra, (Species == "Bison" # filter for bison, elk, sheep
+                                                      | Species == "BighornSheep" | 
+                                                        Species == "Elk"))
+
+sample_data(physeq_rra)$Season = factor(sample_data(physeq_rra)$Season, 
+                                         levels = c("Spring", "Summer", "Winter", "Fall"), 
+                                         labels = c("Spring", "Summer", "Winter", "Winter"))
+sample_data(physeq_rra_core)$Season = factor(sample_data(physeq_rra_core)$Season, 
+                                         levels = c("Spring", "Summer", "Winter", "Fall"), 
+                                         labels = c("Spring", "Summer", "Winter", "Winter"))
+
+
+sample_data(physeq_rra)$Species = factor(sample_data(physeq_rra)$Species, 
+                                         levels = c("Bison", "BighornSheep",  "Elk", "Goat",  "Deer", "Moose" ), 
+                                         labels = c("Bison", "Bighorn Sheep", "Elk",
+                                                     "Mountain Goat",  "Deer Spp.", "Moose"))
+
+
+sample_data(physeq_rra)$Season = factor(sample_data(physeq_rra)$Season, levels = c("Winter", "Summer", "Spring")) 
+
+
+```
+
+
+
+DIFFERENCES IN DIET DUE TO MORPHOLOGY 
+```{r}
+sample_data(physeq_rra)$feeding_mode <- if_else(sample_data(physeq_rra)$Species == "Bison" | 
+                                                  sample_data(physeq_rra)$Species == "BighornSheep", "Grazer", 
+                                if_else(sample_data(physeq_rra)$Species== "Deer", "Browser", "Mixed"))
+
+feeding_mode_dat <- subset_samples(physeq_rra, (Species != "Moose" & Species != "Goat"))
+
+
+
+# group species by functional feeding more and see if permanova differentiates them... use spicy pairwise comparisons too!! 
+diet_matrix <- t(otu_table(feeding_mode_dat)) # get our community matrix
+covar_table <- data.frame(sample_data(feeding_mode_dat)) 
+# run adonis test... community data matrix ~ covariate (rows in community matrix match rows in covar data frame)
+table(covar_table$feeding_mode)
+ffmode_mod <- adonis2(diet_matrix ~ feeding_mode, data = covar_table, permutations = 999, 
+                method = "bray",
+    parallel = 15, na.action = na.fail)
+
+ffmode_mod
+
+
+# group species by functional feeding more and see if permanova differentiates them... use spicy pairwise comparisons too!! 
+graz_browse <- subset_samples(feeding_mode_dat, (feeding_mode == "Grazer" # filter for bison, elk, sheep
+                                                      | feeding_mode == "Browser"))
+
+diet_matrix <- t(otu_table(graz_browse)) # get our community matrix
+covar_table <- data.frame(sample_data(graz_browse)) 
+# run adonis test... community data matrix ~ covariate (rows in community matrix match rows in covar data frame)
+table(covar_table$feeding_mode)
+ffmode_mod <- adonis2(diet_matrix ~ feeding_mode, data = covar_table, permutations = 999, 
+                method = "bray",
+    parallel = 15, na.action = na.fail)
+
+ffmode_mod
+
+## graz graz! 
+graz_browse <- subset_samples(feeding_mode_dat, (feeding_mode == "Grazer" # filter for bison, elk, sheep
+                                                      | feeding_mode == "Mixed"))
+
+diet_matrix <- t(otu_table(graz_browse)) # get our community matrix
+covar_table <- data.frame(sample_data(graz_browse)) 
+# run adonis test... community data matrix ~ covariate (rows in community matrix match rows in covar data frame)
+table(covar_table$feeding_mode)
+ffmode_mod <- adonis2(diet_matrix ~ feeding_mode, data = covar_table, permutations = 999, 
+                method = "bray",
+    parallel = 15, na.action = na.fail)
+
+ffmode_mod
+p.adjust(ffmode_mod$`Pr(>F)`, "holm", n = 3) 
+
+
+graz_browse <- subset_samples(feeding_mode_dat, (feeding_mode == "Browser" # filter for bison, elk, sheep
+                                                      | feeding_mode == "Mixed"))
+
+diet_matrix <- t(otu_table(graz_browse)) # get our community matrix
+covar_table <- data.frame(sample_data(graz_browse)) 
+# run adonis test... community data matrix ~ covariate (rows in community matrix match rows in covar data frame)
+table(covar_table$feeding_mode)
+ffmode_mod <- adonis2(diet_matrix ~ feeding_mode, data = covar_table, permutations = 999, 
+                method = "bray",
+    parallel = 15, na.action = na.fail)
+
+ffmode_mod
+
+p.adjust(ffmode_mod$`Pr(>F)`, "holm", n = 3) 
+```
+
+BODY SIZE DIFFERENCES? 
+```{r}
+######## PAIRWISE COMPARISONS 
+
+# bison sheep 
+bis_bhs <- subset_samples(physeq_rra, Species == "Bison" | Species == "Bighorn Sheep")
+diet_matrix <- t(otu_table(bis_bhs)) # get our community matrix
+covar_table <- data.frame(sample_data(bis_bhs))
+bis_bhs_pair <- adonis2(diet_matrix ~ Species, data = covar_table, permutations = 999, 
+                method = "bray", parallel = 15, na.action = na.fail)
+
+# bison elk 
+bis_elk <- subset_samples(physeq_rra, Species == "Bison" | (Species == "Elk" & Long < -115.4105))
+diet_matrix <- t(otu_table(bis_elk)) # get our community matrix
+covar_table <- data.frame(sample_data(bis_elk))
+bis_elk_pair <- adonis2(diet_matrix ~ Species, data = covar_table, permutations = 999, 
+                method = "bray", parallel = 15, na.action = na.fail)
+
+# bison deer
+bis_deer  <- subset_samples(physeq_rra, Species == "Bison" | Species == "Deer Spp.")
+diet_matrix <- t(otu_table(bis_deer)) # get our community matrix
+covar_table <- data.frame(sample_data(bis_deer))
+bis_deer_pair <- adonis2(diet_matrix ~ Species, data = covar_table, permutations = 999, 
+                method = "bray", parallel = 15, na.action = na.fail)
+bis_deer_pair
+
+
+# bighorn slk 
+dat  <- subset_samples(physeq_rra, Species == "Bighorn Sheep" | Species == "Elk")
+diet_matrix <- t(otu_table(dat)) # get our community matrix
+covar_table <- data.frame(sample_data(dat))
+bhs_elk_pair <- adonis2(diet_matrix ~ Species, data = covar_table, permutations = 999, 
+                method = "bray", parallel = 15, na.action = na.fail)
+bhs_elk_pair
+
+
+# bighorn deer 
+dat  <- subset_samples(physeq_rra, Species == "Bighorn Sheep" | Species == "Deer Spp.")
+diet_matrix <- t(otu_table(dat)) # get our community matrix
+covar_table <- data.frame(sample_data(dat))
+bhs_deer_pair <- adonis2(diet_matrix ~ Species, data = covar_table, permutations = 999, 
+                method = "bray", parallel = 15, na.action = na.fail)
+bhs_deer_pair
+
+
+# elk - deer 
+dat  <- subset_samples(physeq_rra, Species == "Elk" | Species == "Deer Spp.")
+diet_matrix <- t(otu_table(dat)) # get our community matrix
+covar_table <- data.frame(sample_data(dat))
+elk_deer_pair <- adonis2(diet_matrix ~ Species, data = covar_table, permutations = 999, 
+                method = "bray", parallel = 15, na.action = na.fail)
+elk_deer_pair
+
+
+
+# get our adjusted p values
+pairwise.species <- data.frame(species = c("bis_bhs", "bis_elk", "bis_deer", 
+                                           "bhs_elk", "bhs_deer",
+                                           "elk_deer"), 
+                              rsq = c(bis_bhs_pair$R2[1],
+                                        bis_elk_pair$R2[1], 
+                                        bis_deer_pair$R2[1],
+                                      #
+                                      bhs_elk_pair$R2[1],
+                                        bhs_deer_pair$R2[1],
+                                      #
+                                        elk_deer_pair$R2[1]),
+                                      #
+                                  pseudoF = c(bis_bhs_pair$F[1],
+                                        bis_elk_pair$F[1], 
+                                        bis_deer_pair$F[1],
+                                      #
+                                      bhs_elk_pair$F[1],
+                                        bhs_deer_pair$F[1],
+                                      #
+                                        elk_deer_pair$F[1]),
+                                  pval = c(bis_bhs_pair$`Pr(>F)`[1],
+                                        bis_elk_pair$`Pr(>F)`[1], 
+                                        bis_deer_pair$`Pr(>F)`[1],
+                                      #
+                                      bhs_elk_pair$`Pr(>F)`[1],
+                                        bhs_deer_pair$`Pr(>F)`[1],
+                                      #
+                                        elk_deer_pair$`Pr(>F)`[1]),
+                                  
+                                body_diff = c(550, 375, 545, 175, 5, 170))
+
+
+pairwise.species$holm <-   p.adjust(pairwise.species$pval, "holm") 
+
+
+write.csv(pairwise.species, "Outputs/pairwise_comparisons_across_all_species_dec082024.csv")
+
+
+pairwise.species <- read.csv("Outputs/pairwise_comparisons_across_all_species_dec082024.csv")
+
+####### BODY SIZE DIFFERENCES USING MANTEL TEST! 
+# Split species names
+pairwise.species_split <- tidyr::separate(pairwise.species, species, into=c("sp1","sp2"), sep="_") 
+pairwise.species_split <- rbind(pairwise.species_split, data.frame(X = 7:10, sp1 = c("bis", "bhs", "elk", "deer"),sp2= c("bis", "bhs", "elk", "deer"), 
+                                                                   rsq = NA, pseudoF = NA, pval = NA, body_diff  = NA,holm = NA))
+
+# Make square matrix of species × species
+species <- unique(c(pairwise.species_split$sp1, pairwise.species_split$sp2))
+rsq_mat <- matrix(NA, nrow=length(species), ncol=length(species),
+                  dimnames=list(species, species))
+size_mat <- matrix(NA, nrow=length(species), ncol=length(species),
+                  dimnames=list(species, species))
+# Fill matrix
+for(i in 1:nrow(pairwise.species_split)) {
+  rsq_mat[pairwise.species_split$sp1[i], pairwise.species_split$sp2[i]] <- pairwise.species_split$rsq[i]
+  rsq_mat[pairwise.species_split$sp2[i], pairwise.species_split$sp1[i]] <- pairwise.species_split$rsq[i]  # make symmetric
+}
+diag(rsq_mat) <- 0
+# Fill matrix
+for(i in 1:nrow(pairwise.species_split)) {
+  size_mat[pairwise.species_split$sp1[i], pairwise.species_split$sp2[i]] <- pairwise.species_split$body_diff[i]
+  size_mat[pairwise.species_split$sp2[i], pairwise.species_split$sp1[i]] <- pairwise.species_split$body_diff[i]  # make symmetric
+}
+diag(size_mat) <- 0
+
+# converting to distance objects!
+diss_dist <- as.dist(rsq_mat)
+size_dist <- as.dist(size_mat)
+
+# mantel test! 
+mantel_res <- mantel(diss_dist, size_dist, method = "pearson", permutations = 999)
+print(mantel_res)
+
+
+```
+
+
+
+Adonis test to examine if there are seasonal differences in diets of elk/bison/sheep. Followed by some nice pairwise comaprisons
+```{r}
+## all species-season! 
+diet_matrix <- t(otu_table(physeq_rra_core)) # get our community matrix
+covar_table <- data.frame(sample_data(physeq_rra_core))
+class(covar_table)
+# run adonis test... community data matrix ~ covariate (rows in community matrix match rows in covar data frame)
+season_mod <- adonis2(diet_matrix ~ Species*Season, data = covar_table, permutations = 999, 
+                method = "bray",
+    parallel = 15, na.action = na.fail)
+
+season_mod
+
+#rm(season_mod)
+
+# WITHIN season differences 
+
+sp <- subset_samples(physeq_rra_core, Season == "Spring")
+diet_matrix <- t(otu_table(sp)) # get our community matrix
+covar_table <- data.frame(sample_data(sp))
+sp_adonis <- adonis2(diet_matrix ~ Species, data = covar_table, permutations = 999, 
+                method = "bray", parallel = 15, na.action = na.fail)
+sp_adonis
+
+# SPRING SIMPER analysis
+sp_simper_result <- simper(diet_matrix, covar_table$Species, permutations = 999)
+summary(sp_simper_result)
+
+su <- subset_samples(physeq_rra_core, Season == "Summer")
+diet_matrix <- t(otu_table(su)) # get our community matrix
+covar_table <- data.frame(sample_data(su))
+su_adonis <- adonis2(diet_matrix ~ Species, data = covar_table, permutations = 999, 
+                method = "bray", parallel = 15, na.action = na.fail)
+su_adonis
+su_simper_result <- simper(diet_matrix, covar_table$Species, permutations = 999)
+summary(su_simper_result)
+
+
+
+w <- subset_samples(physeq_rra_core, Season == "Winter" | Season == "Fall")
+diet_matrix <- t(otu_table(w)) # get our community matrix
+covar_table <- data.frame(sample_data(w))
+w_adonis <- adonis2(diet_matrix ~ Species, data = covar_table, permutations = 999, 
+                method = "bray", parallel = 15, na.action = na.fail)
+w_adonis
+w_simper_result <- simper(diet_matrix, covar_table$Species, permutations = 999)
+summary(w_simper_result)
+
+############# PAIRWISE ADONIS ##########################
+# use adonis to compare species-season.... 
+#################### SEASON SPECIFIC COMPARISONS 
+
+# elk and bison winter
+bis_elk <- subset_samples(physeq_rra_core, Season == "Winter" & (Species == "Bison" | Species == "Elk"))
+diet_matrix <- t(otu_table(bis_elk)) # get our community matrix
+covar_table <- data.frame(sample_data(bis_elk))
+bis_elk_w_pair <- adonis2(diet_matrix ~ Species, data = covar_table, permutations = 999, 
+                method = "bray", parallel = 15, na.action = na.fail)
+bis_elk_w_pair
+
+# bhs and bison winter
+bis_bhs <- subset_samples(physeq_rra_core, Season == "Winter" & (Species == "Bison" | Species == "BighornSheep"))
+diet_matrix <- t(otu_table(bis_bhs)) # get our community matrix
+covar_table <- data.frame(sample_data(bis_bhs))
+bis_bhs_w_pair <- adonis2(diet_matrix ~ Species, data = covar_table, permutations = 999, 
+                method = "bray", parallel = 15, na.action = na.fail)
+bis_bhs_w_pair
+
+# elk and bison spring
+bis_elk <- subset_samples(physeq_rra_core, Season == "Spring" & (Species == "Bison" | Species == "Elk"))
+diet_matrix <- t(otu_table(bis_elk)) # get our community matrix
+covar_table <- data.frame(sample_data(bis_elk))
+bis_elk_sp_pair <- adonis2(diet_matrix ~ Species, data = covar_table, permutations = 999, 
+                method = "bray", parallel = 15, na.action = na.fail)
+bis_elk_sp_pair
+
+# bhs and bison spring
+bis_bhs <- subset_samples(physeq_rra_core, Season == "Spring" & (Species == "Bison" | Species == "BighornSheep"))
+diet_matrix <- t(otu_table(bis_bhs)) # get our community matrix
+covar_table <- data.frame(sample_data(bis_bhs))
+bis_bhs_sp_pair <- adonis2(diet_matrix ~ Species, data = covar_table, permutations = 999, 
+                method = "bray", parallel = 15, na.action = na.fail)
+bis_bhs_sp_pair
+
+# elk and bison summer
+bis_elk <- subset_samples(physeq_rra_core, Season == "Summer" & (Species == "Bison" | Species == "Elk"))
+diet_matrix <- t(otu_table(bis_elk)) # get our community matrix
+covar_table <- data.frame(sample_data(bis_elk))
+bis_elk_su_pair <- adonis2(diet_matrix ~ Species, data = covar_table, permutations = 999, 
+                method = "bray", parallel = 15, na.action = na.fail)
+bis_elk_su_pair
+
+# bhs and bison SUMMER
+bis_bhs <- subset_samples(physeq_rra_core, Season == "Summer" & (Species == "Bison" | Species == "BighornSheep"))
+diet_matrix <- t(otu_table(bis_bhs)) # get our community matrix
+covar_table <- data.frame(sample_data(bis_bhs))
+bis_bhs_su_pair <- adonis2(diet_matrix ~ Species, data = covar_table, permutations = 999, 
+                method = "bray", parallel = 15, na.action = na.fail)
+bis_bhs_su_pair
+
+# bhs and elk spring
+dat <- subset_samples(physeq_rra, Season == "Spring" & (Species == "Elk" | Species == "BighornSheep"))
+diet_matrix <- t(otu_table(dat)) # get our community matrix
+covar_table <- data.frame(sample_data(dat))
+bhs_elk_sp_pair <- adonis2(diet_matrix ~ Species, data = covar_table, permutations = 999, 
+                method = "bray", parallel = 15, na.action = na.fail)
+bhs_elk_sp_pair
+
+# bjs and elk summer
+dat <- subset_samples(physeq_rra, Season == "Summer" & (Species == "Elk" | Species == "BighornSheep"))
+diet_matrix <- t(otu_table(dat)) # get our community matrix
+covar_table <- data.frame(sample_data(dat))
+bhs_elk_su_pair <- adonis2(diet_matrix ~ Species, data = covar_table, permutations = 999, 
+                method = "bray", parallel = 15, na.action = na.fail)
+bhs_elk_su_pair
+
+
+# bjs and elk winter
+dat <- subset_samples(physeq_rra, Season == "Winter" & (Species == "Elk" | Species == "BighornSheep"))
+diet_matrix <- t(otu_table(dat)) # get our community matrix
+covar_table <- data.frame(sample_data(dat))
+bhs_elk_w_pair <- adonis2(diet_matrix ~ Species, data = covar_table, permutations = 999, 
+                method = "bray", parallel = 15, na.action = na.fail)
+bhs_elk_w_pair
+
+
+# vector of p values 
+pairwise.seasonal <- data.frame(species = c("bis_elk_w_pair", "bis_bhs_w_pair", "bis_elk_sp_pair", "bis_bhs_sp_pair", 
+                                   "bis_elk_su_pair", "bis_bhs_su_pair", 
+                                   "bhs_elk_sp", "bhs_elk_su", "bhs_elk_w"),
+                      rsq = c(bis_elk_w_pair$R2[1], 
+                                  bis_bhs_w_pair$R2[1], 
+                                  bis_elk_sp_pair$R2[1], 
+                                  bis_bhs_sp_pair$R2[1], 
+                                  bis_elk_su_pair$R2[1], 
+                                  bis_bhs_su_pair$R2[1],
+                              bhs_elk_sp_pair$R2[1],
+                              bhs_elk_su_pair$R2[1],
+                              bhs_elk_w_pair$R2[1]
+                              ), 
+                      pseudoF = c(bis_elk_w_pair$F[1], 
+                                  bis_bhs_w_pair$F[1], 
+                                  bis_elk_sp_pair$F[1], 
+                                  bis_bhs_sp_pair$F[1], 
+                                  bis_elk_su_pair$F[1], 
+                                  bis_bhs_su_pair$F[1], 
+                                
+                              bhs_elk_sp_pair$F[1],
+                              bhs_elk_su_pair$F[1],
+                              bhs_elk_w_pair$F[1]),
+                       pval = c( bis_elk_w_pair$`Pr(>F)`[1], 
+                                  bis_bhs_w_pair$`Pr(>F)`[1], 
+                                  bis_elk_sp_pair$`Pr(>F)`[1], 
+                                  bis_bhs_sp_pair$`Pr(>F)`[1], 
+                                  bis_elk_su_pair$`Pr(>F)`[1], 
+                                  bis_bhs_su_pair$`Pr(>F)`[1], 
+                                 
+                              bhs_elk_sp_pair$`Pr(>F)`[1],
+                              bhs_elk_su_pair$`Pr(>F)`[1],
+                              bhs_elk_w_pair$`Pr(>F)`[1]))
+pairwise.seasonal$holm <-   p.adjust(pairwise.seasonal$pval, "holm") 
+
+write.csv(pairwise.seasonal, "Outputs/INSIDE_bisZONE_pairwise_comparisons_across_season.csv")
+```
+
+
+
+Visualizing using NMDS 
+Seasonal differences visualized (bison, sheep, elk) --> ALL SEASONS 
+```{r}
+GP.ord <- ordinate(physeq_rra , "NMDS", "bray", trymax=300) # run ordination 
+
+ordination_RRA_dat = plot_ordination(physeq_rra, GP.ord, color = "Species", shape = "Species", type="samples", justDF = TRUE) %>% 
+  group_by(Species, Season) %>% 
+  mutate(mean_nmds1 = mean(NMDS1), 
+          mean_nmds2 = mean(NMDS2),
+          se_nmds1 = sd(NMDS1)/sqrt(n_distinct(SampleID)), 
+          se_nmds2 = sd(NMDS2)/sqrt(n_distinct(SampleID)))
+  
+
+ordination_RRA_dat$Species =factor(ordination_RRA_dat$Species, levels = c("Bison",  
+                                                   "Bighorn Sheep",    "Elk",  "Goat",  "Deer",  "Moose"),
+                            labels = c("Bison",  "Bighorn Sheep", "Elk", "Mountain Goat", "Deer",  "Moose"))
+
+ordination_RRA <- ggplot(ordination_RRA_dat, aes(x = NMDS1, y = NMDS2*-1, 
+                                                 color = Species, linetype = Species, shape = Species)) +
+  geom_point(size = 1.5) + 
+  stat_chull(aes(fill = Species, linetype = Species), geom = "polygon", alpha = 0.2, size = 0.8) + 
+  scale_color_manual(values = c("#586028","tan1",  "#00A1B7",  "grey30",  "grey50",  "grey80")) +
+  scale_fill_manual(values = c("#586028","tan1",  "#00A1B7",  "grey30",  "grey50",  "grey80")) +
+  scale_shape_manual(values = c(16, 16, 15, 15, 17, 17)) + 
+  scale_linetype_manual(values = c("solid",  "solid", "dashed", "dashed", "dotted", "dotted")) + 
+  ylab("NMDS2") + 
+     theme_bw() + 
+  theme(legend.position =  c(0.75, 0.23), legend.text = element_text(size = 16), legend.title = element_blank(),
+        strip.text = element_text(size = 16),   
+        axis.text = element_blank(), axis.ticks = element_blank(),
+        axis.title = element_text(size = 16)) + 
+ # geom_text(aes(label = ID_Number), vjust = -0.5) + 
+  facet_wrap(.~Season, nrow = 2,  strip.position = "right") 
+ordination_RRA
+
+ggsave("Outputs/all_species_dietoord_seasons_Sept102025.jpeg", ordination_RRA, height = 8, width =6)
+
+
+
+
+################## Removing deer, moose, and goats (from the figure in main text) 
+GP.ord <- ordinate(physeq_rra_core , "NMDS", "bray", trymax=300) # run ordination 
+
+ordination_RRA_dat = plot_ordination(physeq_rra_core, GP.ord, color = "Species", shape = "Species", type="samples", justDF = TRUE) %>% 
+  group_by(Species, Season) %>% 
+  mutate(mean_nmds1 = mean(NMDS1), 
+          mean_nmds2 = mean(NMDS2),
+          se_nmds1 = sd(NMDS1)/sqrt(n_distinct(SampleID)), 
+          se_nmds2 = sd(NMDS2)/sqrt(n_distinct(SampleID)))
+
+ordination_RRA_dat$Species = factor(ordination_RRA_dat$Species, levels = c("Bison", "BighornSheep", "Elk"), 
+                                    labels = c("Bison", "Bighorn sheep", "Elk"))
+table(ordination_RRA_dat$Species)
+
+ordination_RRA_dat$Season = factor(ordination_RRA_dat$Season, levels = c("Winter", "Summer", "Spring"))
+
+ordination_RRA <- ggplot(ordination_RRA_dat, aes(x = NMDS1, y = NMDS2*-1, 
+                                                 color = Species, linetype = Species, 
+                                                 shape = Species)) +
+  geom_point(size = 1.5) + 
+  stat_chull(aes(fill = Species, linetype = Species), geom = "polygon", alpha = 0.5, size = 0.8) + 
+  scale_fill_manual(values = c("#586028","tan1",  "#00A1B7")) + 
+  scale_color_manual(values = c("#586028","tan1",  "#00A1B7")) + 
+  scale_shape_manual(values = c(16, 15,  17)) + 
+  scale_linetype_manual(values = c("solid", "dashed",  "dotted")) + 
+  ylab("NMDS2") + 
+  theme_bw() + 
+  theme(legend.position ="none", 
+        strip.text = element_text(size = 16),   
+        axis.text = element_blank(), axis.ticks = element_blank(),
+        axis.title = element_text(size = 16)) + 
+
+    facet_wrap(.~Season, nrow = 2,  strip.position = "right") 
+ordination_RRA
+ggsave("Outputs/seasonal_core_species_dietoord_Sept172025.jpeg", ordination_RRA, height = 7.5, width = 9)
+
+```
+
+
+Can we correlated NMDS1 and NMDS2 with something in the data? i.e., rra willow/
+```{r}
+
+### CALCULATING CORRELATION BETWEEN ENVIRONMENTAL COVARS AND AXIS SCORES 
+# note that we can't directly convert envfit() vector errors into R2 values for each axis because 
+# we did a weighted ordination, not just a regular PCA SO 
+# instead we have to calculate r2 values between the abundance of different taxa and NMDS axes manually 
+ord_scores <- scores(GP.ord, display = "sites")
+
+otus <- data.frame(t(otu_table(physeq_rra_core)))
+tax <-  data.frame(t(tax_table(physeq_rra_core)))
+colnames(otus) <- tax["best_id",]
+otus_sorted <- otus[,order(colSums(otus), decreasing = TRUE)]
+# keep only top 20 columns
+otus_sorted <- otus_sorted[,1:20]
+otu_names <- colnames(otus_sorted)
+
+# examining the correlation between our ordination axes and our top 20 diet items 
+cors <- data.frame(cor(otus[, c(otu_names)], ord_scores, method = "spearman")) 
+cors$taxa = rownames(cors)
+
+cors <- pivot_longer(cors, cols = c(1:2)) %>% 
+  arrange(., -value)
+
+ggplot(cors, aes(y = reorder(taxa, -value), x = 1, fill = value)) + geom_tile() + 
+  scale_fill_viridis_c("Pearson's Correlation") + 
+  geom_text(aes(label = round(value, 2))) + theme_bw() + 
+  ylab("Taxa Name") + xlab("NMDS Axis") + facet_wrap(.~name, nrow = 1) 
+
+## doing some basic significance testing for our key taxa to get p values
+cor.test(ord_scores[, 1], otus[,"Geum triflorum"], method = "spearman")
+cor.test(ord_scores[, 1], otus[,"Bistorta vivipara"], method = "spearman")
+cor.test(ord_scores[, 1], otus[,"Chamaenerion latifolium"], method = "spearman")
+cor.test(ord_scores[, 1], otus[,"Salix spp. "], method = "spearman")
+cor.test(ord_scores[, 1], otus[,"Festuca campestris/altaica"], method = "spearman")
+
+cor.test(ord_scores[, 2], otus[,"Salix spp. "], method = "spearman")
+cor.test(ord_scores[, 2], otus[,"Rosa acicularis"], method = "spearman")
+cor.test(ord_scores[, 2], otus[,"Poaceae (Leymus, Elymus, Agropyron spp.)"], method = "spearman")
+
+
+```
+
+
+Making a table with all pianka and mean bray-curtis values for each species-season 
+
+```{r}
+### using niche.overlap 
+all_spp <- niche.overlap(otu_table(physeq_rra), method = "pianka") # calculate pairwise niche overlap 
+# using meandist to get the mean distance 
+meandist(all_spp,  sample_data(physeq_rra)$Species)
+
+all_spp <- niche.overlap(otu_table(physeq_rra_core), method = "pianka") # MEAN niche overlap 
+meandist(all_spp,  paste(sample_data(physeq_rra_core)$Species, sample_data(physeq_rra_core)$Season))
+
+## bray-curtis 
+all_spp_bray <-  vegdist(t(otu_table(physeq_rra)), method = "bray") # calculates bray-curtis dissimilarity 
+meandist(all_spp_bray,  sample_data(physeq_rra)$Species)
+
+all_spp_bray <-  vegdist(t(otu_table(physeq_rra_core)), method = "bray") #  MEAN bray-curtis dissimilarity 
+meandist(all_spp_bray,  paste(sample_data(physeq_rra_core)$Species, sample_data(physeq_rra_core)$Season))
+
+```
+
+
+
+Are bighorn/elk diets in spring/summer different inside/outside of the bison zone? 
+```{r}
+
+############### species-biszone interaction
+bhs_elk <- subset_samples(physeq_rra_core, (Season == "Spring" | Season == "Summer") & (Species == "Elk" | Species == "BighornSheep"))
+table(sample_data(bhs_elk)$Species, sample_data(bhs_elk)$Season)
+
+diet_matrix <- t(otu_table(bhs_elk)) # get our community matrix
+covar_table <- data.frame(sample_data(bhs_elk))
+in_biszone <- adonis2(diet_matrix ~ Species*Biszone, data = covar_table, permutations = 999, 
+                method = "bray", parallel = 15, na.action = na.fail)
+in_biszone
+
+
+### pooling for ordination 
+sp_su <- subset_samples(physeq_rra_core, (Season == "Spring" | Season == "Summer"))
+table(sample_data(sp_su)$Species, sample_data(sp_su)$Biszone)
+
+### visualizing using ordination 
+GP.ord <- ordinate( t(otu_table(sp_su)) , "NMDS", "bray", trymax=300) # run ordination 
+
+ordination_RRA_dat = plot_ordination(sp_su, GP.ord, color = "Species", shape = "Species", type="samples", justDF = TRUE) %>% 
+  group_by(Species, Season) %>% 
+  mutate(mean_nmds1 = mean(NMDS1), 
+          mean_nmds2 = mean(NMDS2),
+          se_nmds1 = sd(NMDS1)/sqrt(n_distinct(SampleID)), 
+          se_nmds2 = sd(NMDS2)/sqrt(n_distinct(SampleID)))
+ordination_RRA_dat$Species <- factor(ordination_RRA_dat$Species, levels = c("Bison", "BighornSheep", "Elk"), 
+                                     labels = c("Bison", "Bighorn sheep", "Elk"))
+
+ordination_RRA_dat$Biszone <- factor(ordination_RRA_dat$Biszone, labels = c("Outside bison area", "Inside bison area"))
+
+ordination_RRA <- ggplot(ordination_RRA_dat, aes(x = NMDS1, y = NMDS2*-1, 
+                                                 color = Species, linetype = Species, shape = Species)) +
+  geom_point(size = 1.5) + 
+  stat_chull(aes(fill = Species, linetype = Species), geom = "polygon", alpha = 0.2, size = 0.8) + 
+ # scale_fill_manual("#586028","#898928",  "#00A1B7") + 
+
+#  stat_ellipse(aes(fill = Species, linetype = Species),   size = 0.8) + 
+
+   # scale_color_natparks_d(name = "Banff", direction = -1) + 
+
+  #scale_fill_manual(values = c("firebrick4",  "orange3", "darkorchid4", "orchid1", "gold", "darkorange2")) +   
+   # scale_color_manual(values = c("firebrick4",  "orange3", "darkorchid4",  "orchid1",   "gold", "darkorange2")) +
+ # scale_shape_manual(values = c(16, 16, 15, 15, 17, 17)) + 
+ # scale_linetype_manual(values = c("solid",  "solid", "dashed", "dashed", "dotted", "dotted")) + 
+  ylab("NMDS2") + 
+     theme_bw() + 
+  theme(legend.position ="right") + # c(0.75, 0.23), 
+ # geom_text(aes(label = ID_Number), vjust = -0.5) + 
+  facet_wrap(.~Biszone, nrow = 2,  strip.position = "right") + 
+    scale_fill_manual(values = c("#586028","tan1",  "#00A1B7")) + 
+  scale_color_manual(values = c("#586028","tan1",  "#00A1B7")) + 
+  scale_shape_manual(values = c(16, 15,  17)) + 
+  scale_linetype_manual(values = c("solid", "dashed",  "dotted")) + 
+  theme(strip.text = element_text(size = 16))
+ordination_RRA
+
+ggsave( "Outputs/inside_outside_diet_comparison.jpeg", plot = ordination_RRA, width = 6, height = 7)
+
+
+####################### PAIRWISE COMPARISONS 
+
+# elk and bison inside
+bis_elk <- subset_samples(physeq_rra_core, Season != "Winter" & (Species == "Bison" | (Species == "Elk" & Biszone == "Y")))
+diet_matrix <- t(otu_table(bis_elk)) # get our community matrix
+covar_table <- data.frame(sample_data(bis_elk))
+bis_elk_inside_pair <- adonis2(diet_matrix ~ Species, data = covar_table, permutations = 999, 
+                method = "bray", parallel = 15, na.action = na.fail)
+
+# elk and bison outside 
+bis_elk <- subset_samples(physeq_rra_core, Season != "Winter" & (Species == "Bison" | (Species == "Elk" & Biszone == "N")))
+diet_matrix <- t(otu_table(bis_elk)) # get our community matrix
+covar_table <- data.frame(sample_data(bis_elk))
+bis_elk_outside_pair <- adonis2(diet_matrix ~ Species, data = covar_table, permutations = 999, 
+                method = "bray", parallel = 15, na.action = na.fail)
+
+# bhs and bison inside
+bis_bhs <- subset_samples(physeq_rra_core, Season != "Winter" & (Species == "Bison" | (Species == "BighornSheep" & Biszone == "Y")))
+diet_matrix <- t(otu_table(bis_bhs)) # get our community matrix
+covar_table <- data.frame(sample_data(bis_bhs))
+bis_bhs_inside_pair <- adonis2(diet_matrix ~ Species, data = covar_table, permutations = 999, 
+                method = "bray", parallel = 15, na.action = na.fail)
+
+# bhs and bison outside 
+bis_bhs <- subset_samples(physeq_rra_core, Season != "Winter" & (Species == "Bison" | (Species == "BighornSheep" & Biszone == "N")))
+diet_matrix <- t(otu_table(bis_bhs)) # get our community matrix
+covar_table <- data.frame(sample_data(bis_bhs))
+bis_bhs_outside_pair <- adonis2(diet_matrix ~ Species, data = covar_table, permutations = 999, 
+                method = "bray", parallel = 15, na.action = na.fail)
+
+# elk in vs out
+elk <- subset_samples(physeq_rra_core, Season != "Winter" & Species == "Elk")
+diet_matrix <- t(otu_table(elk)) # get our community matrix
+covar_table <- data.frame(sample_data(elk))
+elk_in_out <- adonis2(diet_matrix ~ Biszone, data = covar_table, permutations = 999, 
+                method = "bray", parallel = 15, na.action = na.fail)
+
+# bhs in vs out 
+bhs <- subset_samples(physeq_rra_core, Season != "Winter" & Species == "BighornSheep")
+diet_matrix <- t(otu_table(bhs)) # get our community matrix
+covar_table <- data.frame(sample_data(bhs))
+bhs_in_out <- adonis2(diet_matrix ~ Biszone, data = covar_table, permutations = 999, 
+                method = "bray", parallel = 15, na.action = na.fail)
+
+# vector of p values 
+pairwise.seasonal <- data.frame(species = c("bis_elk_inside_pair", "bis_elk_outside_pair", "bis_bhs_inside_pair", "bis_bhs_outside_pair", 
+                                   "elk_in_out", "bhs_in_out"),
+                      rsq = c(bis_elk_inside_pair$R2[1], 
+                                  bis_elk_outside_pair$R2[1], 
+                                  bis_bhs_inside_pair$R2[1], 
+                                  bis_bhs_outside_pair$R2[1], 
+                                  elk_in_out$R2[1], 
+                              bhs_in_out$R2[1]
+                              ), 
+                      pseudoF = c(bis_elk_inside_pair$F[1], 
+                                  bis_elk_outside_pair$F[1], 
+                                  bis_bhs_inside_pair$F[1], 
+                                  bis_bhs_outside_pair$F[1], 
+                                  elk_in_out$F[1], 
+                              bhs_in_out$F[1]),
+                       pval = c( bis_elk_inside_pair$`Pr(>F)`[1], 
+                                  bis_elk_outside_pair$`Pr(>F)`[1], 
+                                  bis_bhs_inside_pair$`Pr(>F)`[1], 
+                                  bis_bhs_outside_pair$`Pr(>F)`[1], 
+                                  elk_in_out$`Pr(>F)`[1], 
+                              bhs_in_out$`Pr(>F)`[1]))
+pairwise.seasonal$holm <-   p.adjust(pairwise.seasonal$pval, "holm", 3) 
+
+write.csv(pairwise.seasonal, "Outputs/biszone_pairwise_comparisons.csv")
+
+```
+
+
+
+
+last but not least, trying out Hannah's PAM algorithm to look at diet clusters 
+Use pam() on Bray-Curtis distance matrix to identify dietary clusters using the Partitioning Around Medoids algorithm; use silhouette and elbow methods to identify best cluster number. Sensitivity analyses are conducted in supplement.
+```{r}
+library(cluster)
+library(MASS)
+
+summer <-subset_samples(physeq_rra_core, Season != "Winter")
+all_spp_bray <-  vegdist(t(otu_table(summer)), method = "bray", binary = F) #  MEAN bray-curtis dissimilarity 
+
+
+#bray.dist1228_2 <-metaMDS(all_spp_bray, distance = "bray", k = 4, maxit = 999,  trymax = 200, wascores = TRUE)
+
+bray.dist1228_2_mat <- as.matrix(all_spp_bray)
+bray.dist1228_2_mat
+
+#Find optimal number of clusters
+asw1228 <- numeric(20)
+for (k in 4:length(asw1228)) {
+  set.seed(1028)
+  asw1228[k] <- cluster::pam(bray.dist1228_2_mat , k) $ silinfo $ avg.width
+}
+k.best.boot <- which.max(asw1228)
+cat("silhouette-optimal number of clusters:", k.best.boot, "\n")	#3 is highest using silhouette method 
+plot(asw1228~seq(1,length(asw1228),1),type="l") # 3 is highest also using elbow method 
+braydistclust<-vector("list", k.best.boot) #make a list that includes 3 clusters 
+
+#Assign k = 3 from above, and inspect sample clustering
+set.seed(100896)
+pamNumBoot<-cluster::pam(bray.dist1228_2_mat, k= k.best.boot)
+pamNumBoot$clustering
+braydistclust<-vector("list", k.best.boot)
+braydistclust #this is where samples and their cluster assignments should show up 
+
+#Save copies of each object generated
+bray.nmds <- bray.dist1228_2
+k.best.bray.sub <- k.best.boot
+pamNumBraySub<-pamNumBoot
+
+
+
+############ PLOTTING 
+### visualizing using ordination 
+GP.ord <- ordinate( t(otu_table(summer)) , "NMDS", "bray", trymax=200) # run ordination 
+sample_data(summer)$cluster <- as.factor(pamNumBoot$clustering)
+ordination_RRA_dat = plot_ordination(summer, GP.ord, color = "Species", shape = "Species", type="samples", justDF = TRUE) 
+
+
+
+ggplot(ordination_RRA_dat, aes(x = NMDS1, y = NMDS2*-1, 
+                                                 color = cluster, linetype = cluster, shape = cluster)) +
+  geom_point(size = 1.5) + 
+  stat_chull(aes(fill = cluster, linetype = cluster), geom = "polygon", alpha = 0.2, size = 0.8) + 
+  ylab("NMDS2") + 
+     theme_bw() + 
+  theme(legend.position =  c(0.75, 0.23))+
+ # facet_wrap(Season~Species,   strip.position = "right") + 
+ #   scale_fill_manual(values = c("#586028","tan1",  "#00A1B7")) + 
+#  scale_color_manual(values = c("#586028","tan1",  "#00A1B7")) + 
+#  scale_shape_manual(values = c(16, 15,  17)) + 
+#  scale_linetype_manual(values = c("solid", "dashed",  "dotted")) + 
+  theme(strip.text = element_text(size = 16))
+
+#### looking at clusters 
+physeq_df <- psmelt(summer) %>%
+   mutate(Sample_description = paste(Sample, Date, General_Loc, sep = ":")) %>%   
+  mutate(family_genus_species = paste(family_name, species_name, sep=":"), 
+          family_genus = paste(family_name, genus_name, sep = ":")) %>% 
+  mutate(Present = ifelse(Abundance > 0, 1, 0))
+spp_data <- physeq_df %>%
+  group_by(Species, cluster) %>%
+  mutate(Seasonal_samples = n_distinct(Sample)) %>%  # number of unique samples in the season 
+  group_by(Species, cluster, form, identity) %>% 
+  summarise(RRA = sum(Abundance)/unique(Seasonal_samples)*100, 
+            Seasonal_samples = unique(Seasonal_samples)) %>% 
+    filter(form != "moss") %>% # moss is a miniscule portion, so ditch it! 
+  mutate(form= if_else(is.na(form), "other", form)) 
+spp_data$form = factor(spp_data$form, levels = c("grass", "non-grass graminoid", "forb",
+                                                 "deciduous shrub/tree",
+                                                 "coniferous shrub/tree"), 
+                                    labels = c("Grass", "Non-grass graminoids", "Forbs", 
+                                               "Deciduous shrubs", 
+                                               "Coniferous shrubs"))
+ggplot(spp_data,
+       aes(x = cluster, fill = form, y = RRA)) +
+  geom_col(color = "grey20", alpha = 0.8) + 
+  scale_x_discrete(expand = c(0, .55)) +
+  scale_y_continuous(expand = c(0, 1)) + 
+  labs(y = "Relative Read Abundance (%)", x = NULL) +
+  theme_bw() +
+  #facet_wrap(.~Species) + 
+    scale_fill_manual(values = c("gold", "lightyellow2", "darkorchid", "forestgreen", "brown"),
+                    na.value = "grey90") + 
+  theme(
+    axis.ticks = element_blank(),
+    legend.position = "top", 
+    legend.title = element_blank(),
+    panel.grid.major = element_blank(),  # Remove major gridlines
+    panel.grid.minor = element_blank()
+  ) + 
+  guides(fill = guide_legend(reverse = TRUE))
+
+
+### indicator species analysis for clusters
+w_dat <-  summer
+otu_matrix <- as.data.frame(otu_table(w_dat))
+sample_metadata <- sample_data(w_dat)
+groups <-sample_metadata$cluster # our grouping variable = species 
+
+# Add taxonomy to the OTU table
+otu_with_tax <- cbind(otu_matrix, tax_table(w_dat))
+### GROUP BY mOTU then we can assign stuff post-hoc! 
+otu_by_motu <- otu_with_tax %>%
+  group_by(identity) %>%
+  summarize(across(where(is.numeric), sum, na.rm = TRUE))
+otu_by_motu <- t(otu_by_motu) # transpose
+colnames(otu_by_motu) <- otu_by_motu[1,] # make labels first row) 
+otu_by_motu <- otu_by_motu[-1,] # remove row with labels (character)
+otu_by_motu <- apply(otu_by_motu, 2, as.numeric) # convert to numeric! 
+otu_by_motu <- otu_by_motu[,colSums(otu_by_motu) > 0.01 ] # remove rare taxa (< 1%)
+mOTU_w <- multipatt(otu_by_motu, groups, func = "r.g", control = how(nperm=999))[["sign"]]
+mOTU_w$identity = rownames(mOTU_w)
+mOTU_w <- left_join(mOTU_w, otu_with_tax[,241:263]) 
+
+mOTU_w <- mOTU_w %>% dplyr::select(s.1, s.2, #s.3, 
+                              #     s.4, s.5, s.6, s.7, s.8, s.9, s.10,
+                                   index, stat, p.value, identity, family_name, genus_name, best_id, alternative_id)
+
+w_indic <- mOTU_w %>% 
+  filter(p.value < 0.05) 
+#write.csv(w_indic, "Outputs/WINTER_mOTU_indicspp_allspp.csv")
+
+```
+
+

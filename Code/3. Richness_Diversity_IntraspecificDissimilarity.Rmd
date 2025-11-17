@@ -20,57 +20,47 @@ library(forcats)
 library(spaa)
 library(tidyverse)
 library(here)
-
+library(iNEXT)
 library(hilldiv) # for calculating hill numbers! 
-
+library(ggtext)
 ```
 
 
 ```{r}
 
 physeq_rra <- readRDS("banff_diet_phyloseq_cleaned_Dec032024.rds")
+sample_data(physeq_rra)$Season = factor(sample_data(physeq_rra)$Season, 
+                                         levels = c("Spring", "Summer", "Winter", "Fall"), 
+                                         labels = c("Spring", "Summer", "Winter", "Winter"))
 
-table(sample_data(physeq_rra)$Season)
+
+table(sample_data(physeq_rra)$Season, sample_data(physeq_rra)$Species)
 ```
 
 
-Hill numbers! 
+## Individual mean sample richness and diversity 
 ```{r}
 
 otu_matrix <- as.data.frame(otu_table(physeq_rra))
 sample_metadata <- sample_data(physeq_rra)
 
-# Calculate Hill numbers for each sample RICHNESS
-hill_rich <- hilldiv::hill_div(otu_matrix, qvalue = 0)
-hill_div <- hilldiv::hill_div(otu_matrix, qvalue = 1)
-hill_div_dominant <- hilldiv::hill_div(otu_matrix, qvalue = 2)
+
+# Calculate Hill numbers for each sample RICHNESS AND DIVERSITY 
+hill_rich <- vegan::renyi(t(otu_matrix), scales = 0, hill = T)
+hill_div <- vegan::renyi(t(otu_matrix), scales = 1, hill = T)
 
 # Combine results with sample metadata
 hill_rich <- tibble::rownames_to_column(as.data.frame(hill_rich), var = "SampleID") %>% 
   mutate(metric = "q0") %>% dplyr::select(SampleID, metric, value = "hill_rich")
 hill_div <- tibble::rownames_to_column(as.data.frame(hill_div), var = "SampleID")%>% 
   mutate(metric = "q1") %>% dplyr::select(SampleID, metric, value = "hill_div")
-hill_div_dom <- tibble::rownames_to_column(as.data.frame(hill_div_dominant), var = "SampleID")%>% 
-  mutate(metric = "q2") %>% dplyr::select(SampleID, metric, value = "hill_div_dominant")
 
 hill <- rbind(hill_rich, hill_div)
 
-
-hill2 <- left_join(hill, sample_metadata,  by = "SampleID") %>% 
-  filter(Season != "Fall")
-
-
-ggplot(hill2[hill2$metric == "q1",], aes(x = value, fill = Species)) + geom_histogram() + facet_wrap(Species~Season)
-
-hist(hill2[hill2$Species == "Bison" & hill2$metric == "q1" & Sea,]$value)
-hist(hill2[hill2$Species == "Elk" & hill2$metric == "q1",]$value)
-hist(hill2[hill2$Species == "BighornSheep" & hill2$metric == "q1",]$value)
-
-
+hill2 <- left_join(hill, sample_metadata,  by = "SampleID") 
 
 
 div_metrics <- left_join(hill, sample_metadata,  by = "SampleID") %>% 
-  filter(Season != "Fall") %>% 
   group_by(Species, metric) %>% 
   summarise(mean = mean(value), 
            sd = sd(value), 
@@ -100,110 +90,248 @@ div_metrics$Species =factor(div_metrics$Species, levels = c("Bison",
                             labels = c("Bison",  "Bighorn Sheep", "Elk", "Mountain Goat", "Deer",  "Moose"))
 div_metrics$Season = factor(div_metrics$Season, levels = c("All Seasons",  "Winter", "Spring", "Summer"))
 
-# let's get a lil plot
-ggplot(div_metrics, aes(x = Season, y = mean, color = Species, shape = Species, fill = Species)) + 
-  geom_point(position = position_dodge(width = 0.5)) + 
-  geom_col(position = position_dodge(width = 0.5), color = "black",  alpha = 0.5) + 
-  geom_errorbar(aes(ymin = mean - ci, ymax = mean + ci), position = position_dodge(width = 0.5), width = 0.4) +
-  facet_wrap(.~metric, nrow = 3, scales = "free_y") + 
+div_metrics$metriclab = factor(div_metrics$metric, labels = c("Individual diet richness ", "Individual diet shannon diversity"))
+
+
+### metrics separately 
+ggplot(div_metrics[div_metrics$metric == "q0",], aes(x = Season, y = mean, color = Species, fill = Species)) + 
+  geom_col(position = position_dodge(width = 0.8, preserve = "single"), color = "black",  alpha = 0.85) + 
+  geom_errorbar(aes(ymin = mean - ci, ymax = mean + ci), color = "black", position = position_dodge(width = 0.8,  preserve = "single"), width = 0.4) +
+  facet_wrap(.~metriclab, nrow = 2, scales = "free_y") + 
   theme_bw() + 
-  ylab("Mean index value per species/season and 95 % C.I.") + xlab(NULL) + 
-  scale_color_manual(values = c("firebrick4",  "orange3", "darkorchid",  "orchid1",  "gold",  "darkorange2")) +
-    scale_fill_manual(values = c("firebrick4",  "orange3", "darkorchid",  "orchid1",  "gold",  "darkorange2")) +
-  scale_shape_manual(values = c(16, 16, 15, 15, 17, 17)) + 
+  labs( y =  expression("Sample mean plant taxa " ~ italic(q^0))) + xlab(NULL) + 
+  scale_fill_manual(values = c("#586028","tan1",  "#00A1B7",  "grey30",  "grey50",  "grey80")) +
     theme(
-    legend.title = element_blank(),
-    panel.grid.major = element_blank(),  # Remove major gridlines
-    panel.grid.minor = element_blank()
+    legend.position = "none", 
+    axis.text.x = element_text(size = 12, color = "black"), axis.title.y = element_text(size = 12, color = "black"), 
+    axis.text.y = element_text(size = 10, color = "black"),  strip.text = element_text(size = 14)# increase facet label size
+
   ) + 
-  scale_y_continuous(expand = c(0,0))
+  scale_y_continuous(expand = expansion(mult = c(0, 0.01)), position = "right") 
 
+ggsave("Outputs/richness_mean_Sept092025.jpeg", width = 5, height = 4)
 
-ggsave("Outputs/all_species_diversity_noSeason_dec072024.jpeg", width = 6, height = 6)
+ggplot(div_metrics[div_metrics$metric == "q1",], aes(x = Season, y = mean, color = Species, fill = Species)) + 
+  geom_col(position = position_dodge(width = 0.8, preserve = "single"), color = "black",  alpha = 0.8) + 
+  geom_errorbar(aes(ymin = mean - ci, ymax = mean + ci), color = "black", position = position_dodge(width = 0.8,  preserve = "single"), width = 0.4) +
+  facet_wrap(.~metriclab, nrow = 2, scales = "free_y") + 
+  theme_bw() + 
+  labs( y =  expression("Sample mean plant taxa " ~ italic(q^1))) + xlab(NULL) + 
+  
+  scale_fill_manual(values = c("#586028","tan1",  "#00A1B7",  "grey30",  "grey50",  "grey80")) +
+    theme(
+    legend.position = "none", 
+    axis.text.x = element_text(size = 12, color = "black"), axis.title.y = element_text(size = 12, color = "black"), 
+    axis.text.y = element_text(size = 10, color = "black"),  strip.text = element_text(size = 14)# increase facet label size
 
+  ) + 
+  scale_y_continuous(expand = expansion(mult = c(0, 0.01)), position = "right") 
 
+ggsave("Outputs/diversity_mean_Sept092025.jpeg", width = 5, height = 4)
 ```
 
 What about population-level richness and diversity (combining across samples in a season/species)
 ```{r}
-#Trying to make a SankeyDiagram - this is still janky 
-spp_data <- psmelt(physeq_rra) %>%
-  group_by(Species) %>%
-  mutate(Seasonal_samples = n_distinct(Sample)) %>%  # number of unique samples in the season 
-  group_by(Species, identity) %>% 
-  summarise(RRA = sum(Abundance)/unique(Seasonal_samples)) 
+# For incidence data (presence/absence per diet sample)
+# needs number of species PER scat sample 
+threshold0.pa <- decostand(t(otu_table(physeq_rra)), method="pa", MARGIN=1, zap = F) # by rows (samples)
+#threshold0.pa <-t(otu_table(physeq_rra)) # by rows (samples)
 
-spp_data_wide <- as.data.frame(pivot_wider(spp_data, names_from = Species, values_from = RRA, values_fn = sum))
-rownames(spp_data_wide) <- spp_data_wide$identity
-spp_data_wide <- spp_data_wide[,-1]
+### make a list, where each item of the list is our incidence data to put into iNEXT function to calculate 
+### ALL SPECIES 
+all_dat <- list(bis_all <- subset_samples(physeq_rra, Species == "Bison"), 
+                bhs_all <- subset_samples(physeq_rra, Species == "BighornSheep"), 
+                elk_all <- subset_samples(physeq_rra, Species == "Elk"), 
+                deer_all <- subset_samples(physeq_rra, Species == "Deer"), 
+                moose_all <- subset_samples(physeq_rra, Species == "Moose"), 
+                goat_all <- subset_samples(physeq_rra, Species == "Goat")
+)
+
+
+names(all_dat) <- c("bis_all", "bhs_all", "elk_all", "deer_all", "moose_all", "goat_all")
+
+### WINTER 
+w_dat <- list(bis_w <- subset_samples(physeq_rra, Species == "Bison" & Season == "Winter"), 
+                bhs_w <- subset_samples(physeq_rra, Species == "BighornSheep"  & Season == "Winter"), 
+                elk_w <- subset_samples(physeq_rra, Species == "Elk" & Season == "Winter"))
+names(w_dat) <- c("bis_w", "bhs_w", "elk_w")
+
+### SPRING 
+sp_dat <- list(bis_sp <- subset_samples(physeq_rra, Species == "Bison" & Season == "Spring"), 
+                bhs_sp <- subset_samples(physeq_rra, Species == "BighornSheep"  & Season == "Spring"), 
+                elk_sp <- subset_samples(physeq_rra, Species == "Elk" & Season == "Spring"))
+names(sp_dat) <- c( "bis_sp", "bhs_sp", "elk_sp")
+
+### SUMMER 
+su_dat <- list( bis_su <- subset_samples(physeq_rra, Species == "Bison" & Season == "Summer"), 
+                bhs_su <- subset_samples(physeq_rra, Species == "BighornSheep"  & Season == "Summer"), 
+                elk_su <- subset_samples(physeq_rra, Species == "Elk" & Season == "Summer"))
+names(su_dat) <- c("bis_su", "bhs_su", "elk_su")
+
+
+get_incidence_data <- function(data){
+  
+  for(i in 1:length(data)){
+  
+  sample_data(data[[i]])$SampleID <- rownames(sample_data(data[[i]]))
+  
+  dat <- threshold0.pa[rownames(threshold0.pa) %in% sample_data(data[[i]])$SampleID,]
+  dat <- colSums(dat)
+  dat <- append(dat, nrow(sample_data(data[[i]])), after=0)
+ data[[i]] <- dat
+
+}
+
+  return(data)
+  
+}
+
+
+### getting incidence data 
+all_dat <- get_incidence_data(all_dat)
+w_dat <- get_incidence_data(w_dat)
+sp_dat <- get_incidence_data(sp_dat)
+su_dat <- get_incidence_data(su_dat)
+
+
+############## asymptotic estimates of richness and diversity 
+
+# q0 richness
+all_q0 <- ChaoRichness(all_dat, datatype = "incidence_freq")
+w_q0<-ChaoRichness(w_dat, datatype = "incidence_freq")
+sp_q0<-ChaoRichness(sp_dat, datatype = "incidence_freq")
+su_q0 <-ChaoRichness(su_dat, datatype = "incidence_freq")
+
+all_q0_bound <- rbind(all_q0, w_q0, sp_q0, su_q0) %>% mutate(Assemblage = rownames(.)) %>% 
+  separate(Assemblage, c("Species", "Season")) %>% mutate(metric = "q0")%>% 
+  dplyr::select(Estimator, `95% Lower`, `95% Upper`, Species, Season, metric)
+
+# now q1 diversity
+all_q1 <- ChaoShannon(all_dat, datatype = "incidence_freq", transform = T)
+w_q1<-ChaoShannon(w_dat, datatype = "incidence_freq", transform = T)
+sp_q1<-ChaoShannon(sp_dat, datatype = "incidence_freq", transform = T)
+su_q1 <-ChaoShannon(su_dat, datatype = "incidence_freq", transform = T)
+
+all_q1_bound <- rbind(all_q1, w_q1, sp_q1, su_q1) %>% mutate(Assemblage = rownames(.)) %>% 
+  separate(Assemblage, c("Species", "Season")) %>% mutate(metric = "q1") %>% 
+  dplyr::select(Estimator, `95% Lower`, `95% Upper`, Species, Season, metric)
+
+
+all_q <- rbind(all_q1_bound, all_q0_bound)
 
 
 
-# Calculate Hill numbers for each sample RICHNESS
-hill_rich <- hilldiv::hill_div(spp_data_wide, qvalue = 0) # doesn't really make any sense.... lolz .... no surprise there. 
-hill_div <- hilldiv::hill_div(spp_data_wide, qvalue = 1) # useful! 
-hill_dominant_div <- hilldiv::hill_div(spp_data_wide, qvalue = 2)
+all_q$Season = factor(all_q$Season, levels = c("all", "w", "sp", "su"), 
+                            labels = c("All Seasons", "Winter", "Spring", "Summer"))
+
+
+all_q$Species =factor(all_q$Species, levels = c("bis",  
+                                                   "bhs",    "elk",  "goat",  "deer",  "moose"),
+                            labels = c("Bison",  "Bighorn Sheep", "Elk", "Mountain Goat", "Deer",  "Moose"))
+
+all_q$metriclab = factor(all_q$metric, labels = c("Population-level diet richness ", "Individual diet shannon diversity"))
+
+
+
+ggplot(all_q[all_q$metric == "q0",], aes(x = Season, color = Species, fill = Species, y = Estimator)) + 
+  geom_col(position= position_dodge(width = 0.8, preserve = "single"), color = "black",  alpha = 0.8, width = 1) + 
+  facet_wrap(.~metriclab, nrow = 1, scales = "free_y") + 
+  theme_bw() + 
+  geom_errorbar(aes(ymin = `95% Lower`, ymax = `95% Upper`), color = "black", position = position_dodge(width = 0.8, preserve = "single"), width = 0.4) +
+  labs( y =  expression("Plant taxa " ~ italic(q^0) ~ "(rarefied)")) + xlab(NULL) + 
+  
+  scale_fill_manual(values = c("#586028","tan1",  "#00A1B7",  "grey30",  "grey50",  "grey80")) +
+    theme(
+    legend.position = c(0.78, 0.88), legend.title = element_blank(), legend.text = element_text(size = 14),
+    axis.text.x = element_text(size = 12.5, color = "black"), axis.title.y = element_text(size = 12.5, color = "black"), 
+    axis.text.y = element_text(size = 10, color = "black"),  strip.text = element_text(size = 14)# increase facet label size
+
+  ) + 
+  scale_y_continuous(expand = expansion(mult = c(0, 0.01)), position = "left") 
+
+ggsave( filename = "Outputs/all_species_poprich_Sept092025.jpeg", width =5, height = 8)
 ```
 
 
+# INTRASPECIFIC VARIATION (dispersion)
 trying to get dispersion (intraspecific differences!) based on some of Beth's YNP code - yes, it wokrs!
 ```{r}
 
-sample_data(physeq_rra)$Species_Season = paste(sample_data(physeq_rra)$Species, sample_data(physeq_rra)$Season)
-# subsetting ot season 
-physeq_rra_core <-subset_samples(physeq_rra, Season != "Fall" & (Species == "Bison" | Species == "BighornSheep" | Species == "Elk"))
-bray_dist_core <- phyloseq::distance(physeq_rra_core, method = "bray")
-bray_dist <- phyloseq::distance(physeq_rra, method = "bray")
-
-# calculate!! 
-beta_core <- betadisper(bray_dist_core, group=sample_data(physeq_rra_core)$Species_Season, 
+### all seasons combined
+all <-  subset_samples(physeq_rra, Species %in% c("BighornSheep", "Bison", "Elk", "Deer"))
+bray_dist_core <- phyloseq::distance(all, method = "bray") ## calculating bray-curtis dissimilarity 
+beta_all <- betadisper(bray_dist_core, group=sample_data(all)$Species,  # calculating intraspecific dissimilarity 
                         bias.adjust = TRUE, type = "centroid")
-beta_core
-beta_allspp <- betadisper(bray_dist, bias.adjust = TRUE, type = "centroid", group=sample_data(physeq_rra)$Species)
-beta_allspp
-# YES there are significant differences between groups!! 
-permutest(beta_core, permutations = how(nperm=999), pairwise = TRUE)
-permutest(beta_allspp, permutations = how(nperm=999), pairwise = TRUE)
+permutest(beta_all) # groups differ 
+tukey_all <- TukeyHSD(beta_all)[["group"]] # using a tukey test to see which comparisons are significantly different 
+## okay so bighorn sheep have highest intraspecific differentiation, then elk, then bison 
+tukey_all <- as.data.frame(tukey_all) %>% mutate(Species = rownames(.), Season = "All Seasons")
 
-# but which groups? 
-tukey_szn <- TukeyHSD(beta_core)[["group"]]
-tukey_allspp <- TukeyHSD(beta_allspp)[["group"]]
 
-write.csv(tukey_allspp, "Outputs/intraspecific_diet_dissimilarity_comparisons_tukey.csv")
+### do this for each of our seasons separately ##############
 
-write.csv(tukey_szn, "Outputs/seasonal_intraspecific_diet_dissimilarity_comparisons_tukey.csv")
+# winter 
+w <-  subset_samples(physeq_rra, Season == "Winter" & Species %in% c("BighornSheep", "Bison", "Elk"))
+table(sample_data(w)$Species)
+bray_dist_core <- phyloseq::distance(w, method = "bray") ## calculating bray-curtis dissimilarity 
+beta_w <- betadisper(bray_dist_core, group=sample_data(w)$Species,  # calculating intraspecific dissimilarity 
+                        bias.adjust = TRUE, type = "centroid")
+permutest(beta_w) # groups differ 
 
-# I want a nice little figure showing values across seasons... and species 
-betaszn <- data.frame(beta_core$group.distances) %>% mutate(group = rownames(.)) %>% 
-  separate(group, c("Species", "Season")) %>% dplyr::select(Species, Season, values = "beta_core.group.distances")
-betaall <- data.frame(beta_allspp$group.distances, Season = "All", Species = rownames(beta_allspp$group.distances)) %>% 
-  dplyr::select(Species, Season, values = "beta_allspp.group.distances")
+tukey_w <- TukeyHSD(beta_w)[["group"]] # using a tukey test to see which comparisons are significantly different 
+tukey_w <- as.data.frame(tukey_w) %>% mutate(Species = rownames(.), Season = "Winter")
 
-beta <- rbind(betaszn, betaall)
-beta$Species =factor(beta$Species, levels = c("Bison",  
-                                                   "BighornSheep",    "Elk",  "Goat",  "Deer",  "Moose"),
-                            labels = c("Bison",  "Bighorn Sheep", "Elk", "Mountain Goat", "Deer",  "Moose"))
-beta$Season = factor(beta$Season, levels = c("All",  "Winter", "Spring", "Summer"))
+## spring 
+sp <-  subset_samples(physeq_rra, Season == "Spring" & Species %in% c("BighornSheep", "Bison", "Elk"))
+bray_dist_core <- phyloseq::distance(sp, method = "bray") ## calculating bray-curtis dissimilarity 
+beta_sp <- betadisper(bray_dist_core, group=sample_data(sp)$Species,  # calculating intraspecific dissimilarity 
+                        bias.adjust = TRUE, type = "centroid")
+permutest(beta_sp)
+tukey_sp <- TukeyHSD(beta_sp)[["group"]] # using a tukey test to see which comparisons are significantly different 
+tukey_sp <- as.data.frame(tukey_sp) %>% mutate(Species = rownames(.), Season = "Spring")
 
-ggplot(beta, aes(x = Season, fill = Species, y = values)) + 
+## summer
+su <-  subset_samples(physeq_rra, Season == "Summer" & Species %in% c("BighornSheep", "Bison", "Elk"))
+bray_dist_core <- phyloseq::distance(su, method = "bray") ## calculating bray-curtis dissimilarity 
+beta_su <- betadisper(bray_dist_core, group=sample_data(su)$Species,  # calculating intrasuecific dissimilarity 
+                        bias.adjust = TRUE, type = "centroid")
+permutest(beta_su)
+tukey_su <- TukeyHSD(beta_su)[["group"]] # using a tukey test to see which comparisons are significantly different 
+
+tukey_su <- as.data.frame(tukey_su) %>% mutate(Species = rownames(.), Season = "Summer")
+
+
+all_tukeys <- rbind(tukey_all, tukey_sp, tukey_su, tukey_w)
+write.csv(all_tukeys, "Outputs/intraspecific_diet_dissimilarity_comparisons_tukey.csv")
+
+## all intraspecific values 
+betaw <- data.frame(beta_w$group.distances) %>% mutate(Season = "Winter") %>% rename(Dispersion = beta_w.group.distances)
+betasp <- data.frame(beta_sp$group.distances) %>% mutate(Season = "Spring") %>% rename(Dispersion = beta_sp.group.distances)
+betasu <- data.frame(beta_su$group.distances) %>% mutate(Season = "Summer") %>% rename(Dispersion = beta_su.group.distances)
+betaall <- data.frame(beta_all$group.distances) %>% mutate(Season = "All") %>% rename(Dispersion = beta_all.group.distances)
+
+betas <- rbind(betaw, betasp, betasu, betaall) %>% mutate(Species = rownames(.))
+
+
+write.csv(betas, "Outputs/intraspecific_diet_dissimilarity.csv")
+
+
+ggplot(betas, aes(x = Species, fill = Species, y = Dispersion)) + 
   geom_col(position = position_dodge(width = 0.8)) + 
   theme_bw() + 
-  ylab("Mean intraspecific dissimilarity") + xlab(NULL) + 
-  scale_color_manual(values = c("firebrick4",  "orange3", "darkorchid",  "orchid1",  "gold",  "darkorange2")) +
-    scale_fill_manual(values = c("firebrick4",  "orange3", "darkorchid",  "orchid1",  "gold",  "darkorange2")) +
-  scale_shape_manual(values = c(16, 16, 15, 15, 17, 17)) + 
+  facet_wrap(.~Season, scales = "free_x") + 
+  ylab("Mean intraspecific dissimilarity") + #xlab(NULL) + 
+ # scale_color_manual(values = c("firebrick4",  "orange3", "darkorchid",  "orchid1",  "gold",  "darkorange2")) +
+  #  scale_fill_manual(values = c("firebrick4",  "orange3", "darkorchid",  "orchid1",  "gold",  "darkorange2")) +
+#  scale_shape_manual(values = c(16, 16, 15, 15, 17, 17)) + 
     theme(
     legend.title = element_blank(),
     panel.grid.major = element_blank(),  # Remove major gridlines
     panel.grid.minor = element_blank()
   ) + 
   scale_y_continuous(expand = c(0,0))
-```
 
 
-
-Looking at species accumulation (rarefaction curves) to get population-level diet richness 
-```{r}
 
 ```
 
