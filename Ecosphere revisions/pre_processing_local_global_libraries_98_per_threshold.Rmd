@@ -1,0 +1,349 @@
+---
+title: "Local-global libraries"
+author: "Bethan Littleford-Colquhoun"
+date: "2024-11-01"
+output: 
+  html_document:
+    df_print: paged
+    self_contained: yes
+editor_options: 
+  chunk_output_type: console
+---
+
+Code originally written by TRK for UHURU
+Code adapted by BLC and HKH for YNP (20230419)
+Edited by BLC for Banff 20241101
+Using: BNPP6_completeDB_20240417 as local & db_20231205_P6set as global reference libraries
+
+```{r include=FALSE}
+###########################
+# Add libraries as needed #
+###########################
+library(phyloseq)
+library(vegan)
+#library(vegetarian)
+library(scales)
+library(ggplot2)
+library(sp)
+library(dplyr)
+library(tidyr)
+library(here)
+```
+
+```{r}
+###################################
+# Load local and global databases #
+###################################
+
+dat_global<-read.csv(here("Data/20241029_blittlef/20241030_global_alluniq.clean.tag.ann.tab"), sep="\t", header=TRUE)%>% relocate(last_col())
+dat_local<-read.csv(here("Data/20241029_blittlef/20241031_local_alluniq.clean.tag.ann.tab"), sep="\t", header=TRUE)%>% relocate(last_col())
+dat_samples<-read.csv(here("Data/20241029_blittlef/20241101_phyloseq_metadata_banff.csv"))
+colnames(dat_samples)[colnames(dat_samples) == "X"] ="SampleID"
+
+#databases should have all sequence IDs in same order, but check just in case
+length(which(dat_local$id != dat_global$id))
+```
+
+```{r}
+#######################################
+# Subset databases to perfect matches #
+#######################################
+#local keeps any perfect matches
+nrow(dat_local)
+dat_local <- dat_local %>% dplyr::select(-contains("obiclean_status"))
+#colnames(dat_local) #allows you to copy the correct "best_identity" column name
+local_keep<-dat_local[which(dat_local$best_identity.BNPP6_completeDB_20240417==1),]
+nrow(local_keep) #50
+
+#global only keeps perfect matches if they are not already present in the local set of matches
+nrow(dat_global)
+dat_global <- dat_global %>% dplyr::select(-contains("obiclean_status"))
+#colnames(dat_global) #allows you to copy the correct "best_identity" column name
+global_keep<-dat_global[intersect(which(dat_global$best_identity.db_20231205_P6set==1), which(dat_local$best_identity.BNPP6_completeDB_20240417!=1)),]
+global_keep$scientific_name<-make.unique(as.character(global_keep$scientific_name))
+nrow(global_keep) #676
+
+#combine local and additional global libraries into a database called "keep" for exploratory analyses
+global_keepKEEP<-global_keep
+names(global_keepKEEP)<-names(local_keep)
+keep<-rbind(local_keep,global_keepKEEP)
+
+#write.csv(keep, "keep_local_global_OTU.csv")
+
+#find out distribution of the sequences you toss both locally and globally (i.e., do some match multiple species perfectly, or anything new in GenBank?)
+local_global_toss<-dat_local[which(dat_local$id %in%keep$id==F),] #tells you how many taxa didn't have 100% matches 
+dim(local_global_toss) #41357 278
+local_global_toss<-local_global_toss[order(local_global_toss$count,decreasing=T),]
+dim(local_global_toss)
+head(local_global_toss) # may be a couple of taxa we should look at that have 1-2 matches at ~98% match with high read count 
+
+hist(local_global_toss$best_identity.BNPP6_completeDB_20240417)
+```
+
+```{r}
+# count up 100% matches to local and global libraries
+local_keep
+View(local_keep)
+View(local_keep %>% count(family_name, sort = TRUE)) # 24 families
+View(local_keep %>% count(genus_name, sort = TRUE)) #31 genera (including NA)
+
+global_keep
+global_keep_csv <- global_keep %>% count(family_name, sort = TRUE)
+#write.csv(global_keep_csv, "global_keep_csv.csv")
+
+View(global_keep %>% count(genus_name, sort = TRUE)) #31 to 129 genera  
+```
+
+
+Look at what happens with a 98% threshold --> NOTE need to figure out how to combine taxa with high similarity 
+```{r}
+# look at the 90-99% 
+local_nineties<-dat_local[which(dat_local$best_identity.BNPP6_completeDB_20240417 >= 0.98),]
+local_nineties %>% count(family_name, sort = TRUE) #families with lots of reads matching at 90-99.99% 
+nrow(local_nineties)
+
+global_nineties<-dat_global[which(dat_global$best_identity.db_20231205_P6set >= 0.98),]
+global_nineties %>% count(family_name, sort = TRUE) #families with lots of reads matching at 90-99.99% 
+nrow(global_nineties)
+
+
+#  Filter the global pool to ONLY keep sequences NOT found in the local pool
+global_nineties_keep <- global_nineties %>% 
+  filter(!sequence %in%  local_nineties$sequence)## keep only global samples not in local 
+names(global_nineties_keep) <- names(local_nineties)
+
+# Combine them
+keep_nineties <- bind_rows(local_nineties, global_nineties_keep)
+nrow(keep_nineties)
+sum(keep_nineties$count)
+
+percent_threshold <- sum(dat_local$count)*0.001
+# ok so now let's keep the taxa that are > mean taxa 
+additional_tax_to_keep <- keep_nineties %>%
+  filter(!sequence %in% keep$sequence) %>% # don't include sequences we've already kept (100% match already)
+  filter(count > percent_threshold[[1]])
+
+median(additional_tax_to_keep$count)
+# calculating prop of reads lost with thresholds
+(sum(keep_nineties$count) - sum(keep$count)) / sum(keep$count) *100
+
+# prop with those reads added back in 
+(sum(keep_nineties$count) - sum(keep$count)) / (sum(keep$count)+sum(additional_tax_to_keep$count)) *100
+
+((sum(keep$count)+sum(additional_tax_to_keep$count) - sum(keep$count)) / sum(keep$count)) * 100
+
+
+keep2 <- rbind(keep, additional_tax_to_keep)
+sum(keep2$count)/sum(dat_local$count)
+
+keep2 = keep_nineties
+```
+
+
+```{r}
+###########################################
+# Summary statistics for subset databases #
+###########################################
+#median and max for local and global counts
+median(local_keep$count); median(global_keep$count)
+#[1] 13055
+#[1] 35
+
+max(local_keep$count); max(global_keep$count)
+#[1] 867351
+#[1] 1640116
+
+#sample read depths 
+depth<-colSums(dat_local[,grep("sample\\.", colnames(dat_local))])
+depth_local_only<-colSums(local_keep[,grep("sample\\.", colnames(local_keep))])
+depth_global_only<-colSums(global_keep[,grep("sample\\.", colnames(global_keep))])
+depth_local_and_global<-colSums(keep2[,grep("sample\\.", colnames(keep2))])
+
+
+```
+
+```{r}
+#consider changes in the proportion of sequence reads discarded if you keep only local, global, or both
+proportion_depth_kept_locally<-depth_local_only/depth
+hist(proportion_depth_kept_locally)
+proportion_depth_kept_locally[order(proportion_depth_kept_locally)]
+
+proportion_depth_kept_globally<-depth_global_only/depth
+hist(proportion_depth_kept_globally)
+proportion_depth_kept_globally[order(proportion_depth_kept_globally)]
+
+proportion_depth_kept_locally_and_globally<-depth_local_and_global/depth
+hist(proportion_depth_kept_locally_and_globally)
+proportion_depth_kept_locally_and_globally[order(proportion_depth_kept_locally_and_globally)]
+```
+
+```{r}
+#plot proportional changes at sample level if you add or don't add the global perfect matches to the local perfect matches
+plot(proportion_depth_kept_locally_and_globally~ proportion_depth_kept_locally); text(y=proportion_depth_kept_locally_and_globally, x=proportion_depth_kept_locally, substring(names(proportion_depth_kept_locally),8,15),cex=0.5)
+
+#take proportion_depth_kept_locally from 1
+proportion_depth_kept_locally_df<-data.frame(proportion_depth_kept_locally_and_globally)
+proportion_depth_kept_locally_df2<-data.frame(total = proportion_depth_kept_locally_and_globally,
+                                             local_proportion = proportion_depth_kept_locally,
+                                             global_proportion = proportion_depth_kept_globally,
+                                             reads_discarded = (1-proportion_depth_kept_locally_and_globally),
+                                             sample = gsub("sample.","",as.character(rownames(proportion_depth_kept_locally_df))))
+
+write.csv(proportion_depth_kept_locally_df, "proportion_depth_kept_locally_df.csv")
+
+proportion_depth_kept_locally_df2 %>% 
+  gather(type, count, local_proportion:global_proportion:reads_discarded) %>% 
+  ggplot(., aes(x=sample, y=count, fill=forcats::fct_rev(type))) +
+  scale_fill_manual(values = c("grey50", "#FFC20A", "#0C7BDC")) +
+  geom_bar(stat="identity") +
+  theme_classic()+
+  theme(legend.title=element_blank(),
+        axis.text.x=element_blank()) +
+  scale_y_continuous(expand=c(0,0))
+```
+
+```{r}
+#overall proportion of reads retained with local and global combined
+sum(depth_local_and_global)/sum(depth) #91.8%
+
+#proportion of reads retained with just local
+sum(depth_local_only)/sum(depth) #36%
+
+#additional proportion of reads retained with just global
+sum(depth_global_only)/sum(depth) #51%
+```
+
+```{r}
+#reads that were 100% match to local library but not in global library; perfect matches to our local library that we had previously been missing with the global one
+global_match<-dat_global[which(dat_global$best_identity.db_20231205_P6set==1),]
+global_missing<- subset(local_keep, !(id %in% global_match$id))
+global_missing<-global_missing[order(global_missing$count,decreasing=T),]
+
+depth_local_and_global<-colSums(keep[,grep("sample\\.", colnames(keep))])
+global_missing_trim<- as.matrix(global_missing[,grep("sample\\.", colnames(global_missing[1,]))])
+global_missing_RRA<- as.data.frame(global_missing_trim %o% 1/depth_local_and_global)
+global_missing_RRA_max<-round(apply(global_missing_RRA, 1, max, na.rm=TRUE), digits=6)
+global_missing_RRA_mean<-round(apply(global_missing_RRA, 1, mean, na.rm=TRUE), digits=6)
+global_missing_RRA_info<- cbind(global_missing[,1:10], global_missing[,268:278], global_missing_RRA_mean, global_missing_RRA_max, global_missing_RRA)
+View(global_missing_RRA_info) # 3 species? 
+```
+
+```{r}
+##############################################################################################
+# Sample-wise distribution of reads retained/discarded based on local and/or global criteria #
+##############################################################################################
+#range of RRA change when global matches are added in
+additional_RRA_with_global<-round(proportion_depth_kept_locally_and_globally-proportion_depth_kept_locally, digits=3)
+range(additional_RRA_with_global) # 0.056 0.941
+median(additional_RRA_with_global) # 0.535
+mean(additional_RRA_with_global) # 0.501
+
+#if >75% of samples gain less than 1% of reads back by including the global, we're in good shape; however, a subset of samples (<5%) could gain back a rather high percentage (>61%), suggesting that we should facilitate
+quantile(additional_RRA_with_global,c(0.75, 0.95,1))
+#  75%   95%  100% 
+# 0.625 0.828 0.941
+```
+
+```{r}
+##############################################################################
+# Figure out whether any of the global matches contribute disproportionately #
+##############################################################################
+
+#Report global-matching-taxa that contribute more than 5% of a sample's reads; within those samples, what are the mean, median, and max values?
+global_keep_plants<-matrix(nrow=nrow(global_keep), ncol=4)
+rownames(global_keep_plants)<-as.character(global_keep$scientific_name)
+rownames(global_keep_plants)<-make.unique(rownames(global_keep_plants))
+
+
+for(i in 1:nrow(global_keep_plants)){
+  global_keep_plants[i,1]<- length(which((global_keep[i,grep("sample\\.", colnames(global_keep))]/depth)>0.05))
+  if(global_keep_plants[i,1]>=1){
+    global_keep_plants[i,2]<- mean(as.numeric(global_keep[i, grep("sample\\.", colnames(global_keep))][which((global_keep[i,grep("sample\\.", colnames(global_keep))]/depth)>0.05)])  /  as.numeric(depth[which((global_keep[i,grep("sample\\.", colnames(global_keep))]/depth)>0.05)]))
+    global_keep_plants[i,3]<- median(as.numeric(global_keep[i, grep("sample\\.", colnames(global_keep))][which((global_keep[i,grep("sample\\.", colnames(global_keep))]/depth)>0.05)])  /  as.numeric(depth[which((global_keep[i,grep("sample\\.", colnames(global_keep))]/depth)>0.05)]))
+    global_keep_plants[i,4]<- max(as.numeric(global_keep[i, grep("sample\\.", colnames(global_keep))][which((global_keep[i,grep("sample\\.", colnames(global_keep))]/depth)>0.05)])  /  as.numeric(depth[which((global_keep[i,grep("sample\\.", colnames(global_keep))]/depth)>0.05)]))
+  }
+}
+
+global_keep_plants <- global_keep_plants[complete.cases(global_keep_plants),]
+global_keep_plants # n=52
+range(global_keep_plants[,1]) #sequence count; 1 141
+range(global_keep_plants[,2]) #mean; 0.05154809 0.46126871
+range(global_keep_plants[,4]) #max; 0.05154809 0.88420909
+```
+
+```{r}
+# Make a new dataframe containing the local matches and the non-trace global matches and calculate summary stats
+#i.e.non-trace global matches = higher abundance global matches (e.g. >5%)
+
+#make the dataframe
+global_nontrace<-global_keep[which(global_keep$scientific_name%in%rownames(global_keep_plants)),]; colnames(global_nontrace)<-names(local_keep)
+#global_nontrace 
+dat_out<-rbind(local_keep, global_nontrace)
+dim(dat_out) # 102 278
+
+
+#calculate sample-wise retention of RRA
+dat_out_depth<-colSums(dat_out[,grep("sample\\.", colnames(dat_out))])
+proportion_depth_kept_output<-dat_out_depth/depth
+#proportion_depth_kept_output
+quantile(proportion_depth_kept_output)
+#       0%       25%       50%       75%      100% 
+#   0.2814404 0.8165209 0.8730297 0.9043948 0.9518072
+
+
+#proportion of overall reads kept
+sum(dat_out_depth) #8853524
+sum(dat_out_depth)/sum(depth) #0.8365278
+```
+
+```{r}
+##########################################
+# Make output files for further analyses #
+##########################################
+OTU_table<-keep2[,grep("sample\\.", colnames(keep2))]
+names(OTU_table) <- gsub(pattern = "sample.", replacement = "", x = names(OTU_table))
+names(OTU_table) <- gsub("\\_.*", "", names(OTU_table))
+rownames(OTU_table) <- sub("^", "P", rownames(OTU_table))
+
+tax_table<-keep2[,-grep("sample\\.", colnames(keep2))]
+tax_table<- relocate(tax_table, id, definition, best_identity.BNPP6_completeDB_20240417, best_match.BNPP6_completeDB_20240417, count, .after = last_col())
+rownames(tax_table) <- sub("^", "P", rownames(tax_table))
+tax_table<-as.matrix(tax_table)
+
+dat_samples<-as.data.frame(dat_samples)
+rownames(dat_samples)<- dat_samples$SampleID
+```
+
+```{r}
+##################################################################################################
+# Build the physeqdiet object, rarefy, and export the rarefied tables for easy loading in future #
+##################################################################################################
+OTU <- otu_table(OTU_table, taxa_are_rows = TRUE)
+TAX = tax_table(tax_table)
+samples = sample_data(dat_samples)
+BNP_diet_local_global_20241101 <- phyloseq(OTU, TAX, samples)
+BNP_diet_local_global_20241101 #726 taxa and 261 samples
+
+saveRDS(BNP_diet_local_global_20241101, "data/98_per_BNP_diet_local_global_20260621.rds")
+
+write.csv(otu_table(BNP_diet_local_global_20241101), "OTUtable_BNP_diet_local_global_20260621.csv")
+write.csv(tax_table(BNP_diet_local_global_20241101), "TAXtable_BNP_diet_local_global_20260621.csv")
+
+# WE HAVE A PHYLOSEQ OBJECT!!! :)
+```
+
+
+```{r}
+dat <- readRDS("data/BNP_diet_local_global_20260621.rds")
+
+seq_lengths <- nchar(tax_table(dat)[,"sequence"])
+get_mode <- function(x) {
+  uniq_x <- unique(x)
+  uniq_x[which.max(tabulate(match(x, uniq_x)))]
+}
+mode_len   <- get_mode(seq_lengths)
+median_len <- median(seq_lengths) # Handy extra metric
+min(seq_lengths)
+max(seq_lengths)
+```
+
